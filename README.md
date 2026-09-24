@@ -14,15 +14,15 @@ With **UniMVC**, a ready-made inventory UI is added to your project (see [UI](#u
 
 Importing InventorySystem never breaks your project. A small setup script checks for these, leaves
 InventorySystem out of compilation while EventSystem is missing, and offers to install what's missing
-(**Tools > Inventory System > Check Dependencies** checks again). InventorySystem itself contains no
+(**Tools > Inventory System > Check Dependencies** checks again). EventSystem and UniMVC are downloaded
+into `Assets/Scripts/EventSystem/` and `Assets/Scripts/MVC/`, exactly as if you had copied them there. InventorySystem itself contains no
 UI code and no code of any other system: pooling, interaction and UI are all wired from the outside.
 
 ## Installation
 
 Clone or download this repository and copy it into a folder under `Assets/` (e.g.
-`Assets/Scripts/InventorySystem/`). Install it this way rather than as a Package Manager package:
-**Compile** writes the generated `ItemTypes.cs` into the system's own `Runtime/Generated/` folder, and
-packages are read-only.
+`Assets/Scripts/InventorySystem/`). **Compile** writes the generated `ItemTypes.cs` into the system's own
+`Runtime/Generated/` folder.
 
 ## Setup
 
