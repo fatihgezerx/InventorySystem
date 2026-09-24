@@ -1,0 +1,393 @@
+#if HAS_UNIMVC && HAS_UGUI && HAS_TEXTMESHPRO && HAS_EVENT_SYSTEM && HAS_INPUT_SYSTEM
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.InputSystem;
+using UnityEngine.UI;
+
+namespace InventorySystem.UI
+{
+    /// <summary>
+    /// Shows a <see cref="GridInventory"/>: a background cell per grid cell, and one
+    /// <see cref="InventorySlotButton"/> per placed item, sized to its footprint with its icon turned by its
+    /// rotation. While an item is dragged, the cells it would land on are tinted green (fits) or red
+    /// (doesn't), and the rotate input (R by default) turns it. Drop it on free cells to move it, or on a
+    /// stack of the same item to merge.
+    /// </summary>
+    public sealed class InventoryGridPanel : InventoryContentPanel
+    {
+        [Tooltip("Holds the background cells. Anchored and sized by the panel.")]
+        [SerializeField] private RectTransform cellLayer;
+
+        [Tooltip("Holds the item buttons. Anchored and sized by the panel.")]
+        [SerializeField] private RectTransform itemLayer;
+
+        [Tooltip("Holds the drop preview. Anchored and sized by the panel.")]
+        [SerializeField] private RectTransform previewLayer;
+
+        [SerializeField] private Image cellTemplate;
+        [SerializeField] private InventorySlotButton itemTemplate;
+
+        [Tooltip("Sized to the whole grid, so the window around it fits.")]
+        [SerializeField] private LayoutElement layoutElement;
+
+        [Min(8f)] [SerializeField] private float cellSize = 64f;
+        [Min(0f)] [SerializeField] private float cellSpacing = 2f;
+
+        [Tooltip("Gap between an item's icon and the edge of its footprint.")]
+        [Min(0f)] [SerializeField] private float iconPadding = 6f;
+
+        [SerializeField] private Color validColor = new(0.3f, 0.9f, 0.4f, 0.35f);
+        [SerializeField] private Color invalidColor = new(0.95f, 0.3f, 0.3f, 0.35f);
+
+        [Tooltip("Turns the dragged item. Empty: the project-wide action \"RotateItem\" if there is one, otherwise R.")]
+        [SerializeField] private InputActionReference rotateAction;
+
+        private readonly List<Image> _cells = new();
+        private readonly List<InventorySlotButton> _items = new();
+        private readonly List<Image> _previewCells = new();
+        private InputAction _rotate;
+        private bool _ownsRotate;
+        private Vector2 _lastPointer;
+
+        private GridInventory Grid => Inventory as GridInventory;
+
+        private float Pitch => cellSize + cellSpacing;
+
+        public override bool Supports(InventoryType type) => type == InventoryType.Grid;
+
+        protected override void OnEnable()
+        {
+            ResolveRotateAction();
+            _rotate.performed += OnRotatePerformed;
+            _rotate.Enable();
+            base.OnEnable();
+        }
+
+        protected override void OnDisable()
+        {
+            _rotate.performed -= OnRotatePerformed;
+            if (_ownsRotate)
+            {
+                _rotate.Disable();
+            }
+
+            base.OnDisable();
+        }
+
+        private void OnDestroy()
+        {
+            if (_ownsRotate)
+            {
+                _rotate?.Dispose();
+            }
+        }
+
+        #region Drawing
+
+        protected override void Rebuild()
+        {
+            var grid = Grid;
+            var columns = grid?.Columns ?? 0;
+            var rows = grid?.Rows ?? 0;
+            var size = columns > 0 ? Footprint(new Vector2Int(columns, rows)) : Vector2.zero;
+
+            PrepareLayer(cellLayer, size);
+            PrepareLayer(itemLayer, size);
+            PrepareLayer(previewLayer, size);
+
+            if (layoutElement != null)
+            {
+                layoutElement.preferredWidth = size.x;
+                layoutElement.preferredHeight = size.y;
+            }
+
+            var cellCount = columns * rows;
+            while (_cells.Count < cellCount)
+            {
+                var cell = Instantiate(cellTemplate, cellLayer);
+                cell.raycastTarget = false;
+                PrepareCellRect(cell.rectTransform);
+                _cells.Add(cell);
+            }
+
+            for (var i = 0; i < _cells.Count; i++)
+            {
+                var show = i < cellCount;
+                _cells[i].gameObject.SetActive(show);
+                if (show)
+                {
+                    _cells[i].rectTransform.anchoredPosition = CellPosition(new Vector2Int(i % columns, i / columns));
+                }
+            }
+
+            var slotCount = grid?.SlotCount ?? 0;
+            for (var i = 0; i < slotCount; i++)
+            {
+                RefreshSlot(i);
+            }
+
+            for (var i = slotCount; i < _items.Count; i++)
+            {
+                _items[i].gameObject.SetActive(false);
+            }
+
+            HidePreview();
+        }
+
+        protected override void RefreshSlot(int index)
+        {
+            var grid = Grid;
+            if (grid == null)
+            {
+                return;
+            }
+
+            while (_items.Count <= index)
+            {
+                var created = CreateSlot(itemTemplate, itemLayer, _items.Count);
+                var rect = created.RectTransform;
+                rect.anchorMin = rect.anchorMax = rect.pivot = new Vector2(0f, 1f);
+                _items.Add(created);
+            }
+
+            var item = _items[index];
+            var slot = grid.Slots[index];
+            if (slot.IsEmpty)
+            {
+                item.gameObject.SetActive(false);
+                return;
+            }
+
+            item.RectTransform.anchoredPosition = CellPosition(slot.Position);
+            item.RectTransform.sizeDelta = Footprint(slot.Size);
+            item.SetIconRotation(slot.Rotation, IconSize(slot.Item.Shape));
+            item.Show(slot);
+            item.gameObject.SetActive(true);
+        }
+
+        protected override void OnSlotCountChanged(int count)
+        {
+            // Trimmed slots were emptied (and hidden) by SlotChanged already; new ones arrive through it next.
+            for (var i = count; i < _items.Count; i++)
+            {
+                _items[i].gameObject.SetActive(false);
+            }
+        }
+
+        #endregion
+
+        #region Drag and drop
+
+        protected override void OnDragStarted(InventorySlotButton slot, InventorySlot inventorySlot, PointerEventData eventData)
+        {
+            _lastPointer = eventData.position;
+            var offset = PointerCell(eventData.position) - inventorySlot.Position;
+            var size = inventorySlot.Size;
+            InventoryDrag.GrabOffset = new Vector2Int(Mathf.Clamp(offset.x, 0, size.x - 1), Mathf.Clamp(offset.y, 0, size.y - 1));
+            ShowGhost(inventorySlot);
+            UpdatePreview();
+        }
+
+        protected override void OnDragMoved(PointerEventData eventData)
+        {
+            _lastPointer = eventData.position;
+            UpdatePreview();
+        }
+
+        protected override void OnDragEnded() => HidePreview();
+
+        protected override void DropFromSameInventory(InventorySlotButton target, PointerEventData eventData)
+        {
+            var grid = Grid;
+            var index = InventoryDrag.SlotIndex;
+            var amount = InventoryDrag.Amount;
+            var rotation = InventoryDrag.Rotation;
+            if (grid == null || !TryGetSlot(index, out var slot))
+            {
+                return;
+            }
+
+            var cell = PointerCell(eventData.position);
+            var under = grid.GetSlotIndexAt(cell);
+            if (under >= 0 && under != index && grid.Slots[under].Item == slot.Item)
+            {
+                grid.Move(index, under, amount);
+                return;
+            }
+
+            var position = cell - InventoryDrag.GrabOffset;
+            if (amount >= slot.Amount)
+            {
+                grid.MoveTo(index, position, rotation);
+                return;
+            }
+
+            // Part of a stack dropped on free cells: split it off, then move the new stack there.
+            var split = grid.Split(index, amount);
+            if (split >= 0)
+            {
+                grid.MoveTo(split, position, rotation);
+            }
+        }
+
+        private void OnRotatePerformed(InputAction.CallbackContext context)
+        {
+            if (InventoryDrag.SourcePanel != this || !TryGetSlot(InventoryDrag.SlotIndex, out var slot))
+            {
+                return;
+            }
+
+            var shape = slot.Item.Shape;
+            if (!slot.Item.CanRotate || ItemShapes.GetRotationCount(shape) == 1)
+            {
+                return;
+            }
+
+            // The grabbed cell turns with the item: (x, y) in a w x h box -> (h - 1 - y, x).
+            var oldSize = ItemShapes.GetSize(shape, InventoryDrag.Rotation);
+            var grab = InventoryDrag.GrabOffset;
+            InventoryDrag.Rotation = ItemShapes.NormalizeRotation(shape, InventoryDrag.Rotation + 1);
+            var newSize = ItemShapes.GetSize(shape, InventoryDrag.Rotation);
+            InventoryDrag.GrabOffset = new Vector2Int(
+                Mathf.Clamp(oldSize.y - 1 - grab.y, 0, newSize.x - 1),
+                Mathf.Clamp(grab.x, 0, newSize.y - 1));
+
+            ShowGhost(slot);
+            DragGhost.For(RootCanvas).MoveTo(_lastPointer);
+            UpdatePreview();
+        }
+
+        private void ShowGhost(InventorySlot slot)
+        {
+            var size = ItemShapes.GetSize(slot.Item.Shape, InventoryDrag.Rotation);
+            var footprint = Footprint(size);
+            var grab = InventoryDrag.GrabOffset;
+            var pivot = new Vector2(
+                (grab.x + 0.5f) * Pitch / footprint.x,
+                1f - (grab.y + 0.5f) * Pitch / footprint.y);
+
+            DragGhost.For(RootCanvas).Show(slot.Item.Icon, InventoryDrag.Amount, footprint, pivot,
+                InventoryDrag.Rotation, IconSize(slot.Item.Shape));
+        }
+
+        private void UpdatePreview()
+        {
+            HidePreview();
+
+            var grid = Grid;
+            if (grid == null || !TryGetSlot(InventoryDrag.SlotIndex, out var slot)
+                || !RectTransformUtility.RectangleContainsScreenPoint(itemLayer, _lastPointer, EventCamera))
+            {
+                return;
+            }
+
+            var cell = PointerCell(_lastPointer);
+            var under = grid.GetSlotIndexAt(cell);
+            if (under >= 0 && under != InventoryDrag.SlotIndex && grid.Slots[under].Item == slot.Item)
+            {
+                var target = grid.Slots[under];
+                PreviewShape(target.Item.Shape, target.Position, target.Rotation, target.SpaceLeft > 0 ? validColor : invalidColor);
+                return;
+            }
+
+            var position = cell - InventoryDrag.GrabOffset;
+            var fits = grid.CanMoveTo(InventoryDrag.SlotIndex, position, InventoryDrag.Rotation);
+            PreviewShape(slot.Item.Shape, position, InventoryDrag.Rotation, fits ? validColor : invalidColor);
+        }
+
+        private void PreviewShape(ItemShape shape, Vector2Int position, int rotation, Color color)
+        {
+            var grid = Grid;
+            var used = 0;
+            var offsets = ItemShapes.GetCells(shape, rotation);
+            for (var i = 0; i < offsets.Count; i++)
+            {
+                var cell = position + offsets[i];
+                if (!grid.IsInside(cell))
+                {
+                    continue;
+                }
+
+                if (used == _previewCells.Count)
+                {
+                    var preview = Instantiate(cellTemplate, previewLayer);
+                    preview.name = "Preview Cell";
+                    preview.raycastTarget = false;
+                    PrepareCellRect(preview.rectTransform);
+                    _previewCells.Add(preview);
+                }
+
+                var image = _previewCells[used++];
+                image.color = color;
+                image.rectTransform.anchoredPosition = CellPosition(cell);
+                image.gameObject.SetActive(true);
+            }
+        }
+
+        private void HidePreview()
+        {
+            foreach (var cell in _previewCells)
+            {
+                cell.gameObject.SetActive(false);
+            }
+        }
+
+        #endregion
+
+        #region Geometry
+
+        private Vector2 CellPosition(Vector2Int cell) => new(cell.x * Pitch, -cell.y * Pitch);
+
+        private Vector2 Footprint(Vector2Int cells) => new(cells.x * Pitch - cellSpacing, cells.y * Pitch - cellSpacing);
+
+        // The icon's unrotated size: turning the icon (not the footprint) keeps the sprite's proportions.
+        private Vector2 IconSize(ItemShape shape) =>
+            Vector2.Max(Footprint(ItemShapes.GetSize(shape, 0)) - Vector2.one * (iconPadding * 2f), Vector2.one);
+
+        private Vector2Int PointerCell(Vector2 screenPosition)
+        {
+            RectTransformUtility.ScreenPointToLocalPointInRectangle(itemLayer, screenPosition, EventCamera, out var local);
+            return new Vector2Int(Mathf.FloorToInt(local.x / Pitch), Mathf.FloorToInt(-local.y / Pitch));
+        }
+
+        private static void PrepareLayer(RectTransform layer, Vector2 size)
+        {
+            layer.anchorMin = layer.anchorMax = layer.pivot = new Vector2(0f, 1f);
+            layer.anchoredPosition = Vector2.zero;
+            layer.sizeDelta = size;
+        }
+
+        private void PrepareCellRect(RectTransform rect)
+        {
+            rect.anchorMin = rect.anchorMax = rect.pivot = new Vector2(0f, 1f);
+            rect.sizeDelta = new Vector2(cellSize, cellSize);
+            rect.localEulerAngles = Vector3.zero;
+            rect.gameObject.SetActive(true);
+        }
+
+        #endregion
+
+        private void ResolveRotateAction()
+        {
+            if (_rotate != null)
+            {
+                return;
+            }
+
+            if (rotateAction != null && rotateAction.action != null)
+            {
+                _rotate = rotateAction.action;
+                return;
+            }
+
+            _rotate = InputSystem.actions != null ? InputSystem.actions.FindAction("RotateItem") : null;
+            if (_rotate == null)
+            {
+                _rotate = new InputAction("Rotate Item", InputActionType.Button, "<Keyboard>/r");
+                _ownsRotate = true;
+            }
+        }
+    }
+}
+#endif

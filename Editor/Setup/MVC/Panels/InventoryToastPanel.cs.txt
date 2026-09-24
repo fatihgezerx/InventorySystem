@@ -1,0 +1,34 @@
+#if HAS_UNIMVC && HAS_UGUI && HAS_TEXTMESHPRO && HAS_EVENT_SYSTEM && HAS_INPUT_SYSTEM
+using TMPro;
+using UniMVC;
+using UnityEngine;
+using UnityEngine.UI;
+
+namespace InventorySystem.UI
+{
+    /// <summary>One notification of <see cref="InventoryNotificationPanel"/>: an icon and a message.</summary>
+    [RequireComponent(typeof(CanvasGroup))]
+    public sealed class InventoryToastPanel : PanelViewBase
+    {
+        [SerializeField] private Image icon;
+        [SerializeField] private TMP_Text message;
+
+        private CanvasGroup _group;
+
+        internal ItemDefinition Item { get; set; }
+        internal bool IsFull { get; set; }
+        internal int Amount { get; set; }
+        internal float TimeLeft { get; set; }
+
+        internal CanvasGroup Group => _group != null ? _group : _group = GetComponent<CanvasGroup>();
+
+        public void Set(Sprite sprite, string text, Color color)
+        {
+            icon.sprite = sprite;
+            icon.enabled = sprite != null;
+            message.text = text;
+            message.color = color;
+        }
+    }
+}
+#endif

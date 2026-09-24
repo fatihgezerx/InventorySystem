@@ -1,0 +1,26 @@
+#if HAS_UNIMVC && HAS_UGUI && HAS_TEXTMESHPRO && HAS_EVENT_SYSTEM && HAS_INPUT_SYSTEM
+using UniMVC;
+
+namespace InventorySystem.UI
+{
+    /// <summary>Closes the <see cref="InventoryPanel"/> it sits in - so it also works in a second window, e.g. a chest's.</summary>
+    public sealed class InventoryCloseButton : ButtonViewBase
+    {
+        private InventoryPanel _panel;
+
+        protected override void OnInitialize()
+        {
+            base.OnInitialize();
+            _panel = GetComponentInParent<InventoryPanel>(true);
+        }
+
+        protected override void OnClick()
+        {
+            if (_panel != null)
+            {
+                _panel.Hide();
+            }
+        }
+    }
+}
+#endif

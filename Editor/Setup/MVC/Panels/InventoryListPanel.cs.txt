@@ -1,0 +1,123 @@
+#if HAS_UNIMVC && HAS_UGUI && HAS_TEXTMESHPRO && HAS_EVENT_SYSTEM && HAS_INPUT_SYSTEM
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.UI;
+
+namespace InventorySystem.UI
+{
+    /// <summary>
+    /// Shows an Unlimited, Weight or MaxSlot inventory as rows of slots in a <see cref="GridLayoutGroup"/>,
+    /// one <see cref="InventorySlotButton"/> per slot. Buttons are created once and reused; a change
+    /// redraws only its own slot. Drag a slot onto another to merge, swap or move into an empty slot.
+    /// </summary>
+    /// <remarks>
+    /// Unlimited and Weight inventories only have as many slots as they use, so the panel pads them with
+    /// empty placeholder cells (Minimum Visible Slots, rounded up to full rows) to keep a stable look.
+    /// </remarks>
+    public sealed class InventoryListPanel : InventoryContentPanel
+    {
+        [SerializeField] private InventorySlotButton slotTemplate;
+
+        [Tooltip("The layout the slots are laid out by; usually a ScrollRect's content.")]
+        [SerializeField] private GridLayoutGroup content;
+
+        [Tooltip("Sized to fit Columns x Max Visible Rows, so the window around it fits the slots.")]
+        [SerializeField] private LayoutElement layoutElement;
+
+        [Min(1)] [SerializeField] private int columns = 6;
+
+        [Tooltip("Rows shown before the list scrolls.")]
+        [Min(1)] [SerializeField] private int maxVisibleRows = 5;
+
+        [Tooltip("Unlimited / Weight: at least this many cells are shown, rounded up to full rows.")]
+        [Min(0)] [SerializeField] private int minimumVisibleSlots = 24;
+
+        private readonly List<InventorySlotButton> _slots = new();
+        private int _visibleCount = -1;
+
+        public override bool Supports(InventoryType type) => type != InventoryType.Grid;
+
+        protected override void Rebuild()
+        {
+            _visibleCount = -1;
+            SetVisibleCount(Inventory?.SlotCount ?? 0);
+
+            for (var i = 0; i < _visibleCount; i++)
+            {
+                RefreshSlot(i);
+            }
+        }
+
+        protected override void RefreshSlot(int index)
+        {
+            if (index < _visibleCount)
+            {
+                _slots[index].Show(Inventory != null && index < Inventory.SlotCount ? Inventory.Slots[index] : null);
+            }
+        }
+
+        protected override void OnSlotCountChanged(int count)
+        {
+            var previous = _visibleCount;
+            SetVisibleCount(count);
+
+            // Cells that just became visible, or became placeholders, start out empty.
+            for (var i = Math.Min(previous, count); i < _visibleCount; i++)
+            {
+                RefreshSlot(i);
+            }
+        }
+
+        private void SetVisibleCount(int slotCount)
+        {
+            var visible = slotCount;
+            if (Inventory != null && Inventory.Type != InventoryType.MaxSlot)
+            {
+                visible = Math.Max(visible, minimumVisibleSlots);
+                visible = (visible + columns - 1) / columns * columns;
+            }
+
+            if (visible == _visibleCount)
+            {
+                return;
+            }
+
+            while (_slots.Count < visible)
+            {
+                var slot = CreateSlot(slotTemplate, content.transform, _slots.Count);
+                slot.ShowEmpty();
+                _slots.Add(slot);
+            }
+
+            for (var i = 0; i < _slots.Count; i++)
+            {
+                var show = i < visible;
+                if (_slots[i].gameObject.activeSelf != show)
+                {
+                    _slots[i].gameObject.SetActive(show);
+                }
+            }
+
+            _visibleCount = visible;
+            UpdateSize();
+        }
+
+        private void UpdateSize()
+        {
+            content.constraint = GridLayoutGroup.Constraint.FixedColumnCount;
+            content.constraintCount = columns;
+
+            if (layoutElement == null)
+            {
+                return;
+            }
+
+            var pitch = content.cellSize + content.spacing;
+            var rows = Mathf.Clamp((_visibleCount + columns - 1) / columns, 1, maxVisibleRows);
+            layoutElement.preferredWidth = columns * pitch.x - content.spacing.x + content.padding.horizontal;
+            layoutElement.preferredHeight = rows * pitch.y - content.spacing.y + content.padding.vertical;
+        }
+    }
+}
+#endif

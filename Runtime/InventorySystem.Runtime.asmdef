@@ -1,0 +1,18 @@
+{
+    "name": "InventorySystem.Runtime",
+    "rootNamespace": "InventorySystem",
+    "references": [
+        "EventSystem.Runtime"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "HAS_EVENT_SYSTEM"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

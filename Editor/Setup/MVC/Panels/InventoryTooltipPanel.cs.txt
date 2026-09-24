@@ -1,0 +1,103 @@
+#if HAS_UNIMVC && HAS_UGUI && HAS_TEXTMESHPRO && HAS_EVENT_SYSTEM && HAS_INPUT_SYSTEM
+using TMPro;
+using UniMVC;
+using UnityEngine;
+using UnityEngine.UI;
+
+namespace InventorySystem.UI
+{
+    /// <summary>
+    /// The item tooltip content panels show on hover: the item's name, and its stack (and weight, in Weight
+    /// inventories). Content panels find it through the <see cref="UIManager"/>, so without one hovering
+    /// simply shows nothing. Give it a CanvasGroup that doesn't block raycasts, so it never steals the hover.
+    /// </summary>
+    public sealed class InventoryTooltipPanel : PanelViewBase
+    {
+        [SerializeField] private TMP_Text nameText;
+
+        [Tooltip("Stack and weight. Hidden when there is nothing to show.")]
+        [SerializeField] private TMP_Text detailText;
+
+        [Tooltip("From the pointer to the tooltip's top-left corner.")]
+        [SerializeField] private Vector2 offset = new(18f, -18f);
+
+        private RectTransform _rect;
+
+        protected override void OnInitialize()
+        {
+            base.OnInitialize();
+            _rect = (RectTransform)transform;
+            if (IsVisible)
+            {
+                gameObject.SetActive(false);
+            }
+        }
+
+        public void ShowFor(Inventory inventory, InventorySlot slot, Vector2 screenPosition)
+        {
+            if (slot == null || slot.IsEmpty)
+            {
+                Hide();
+                return;
+            }
+
+            var item = slot.Item;
+            nameText.SetText(item.DisplayName);
+
+            if (detailText != null)
+            {
+                var showWeight = inventory != null && inventory.Type == InventoryType.Weight;
+                if (item.MaxStack > 1 && showWeight)
+                {
+                    detailText.SetText("Stack {0} / {1}\nWeight {2:2}", slot.Amount, item.MaxStack, slot.Weight);
+                }
+                else if (item.MaxStack > 1)
+                {
+                    detailText.SetText("Stack {0} / {1}", slot.Amount, item.MaxStack);
+                }
+                else if (showWeight)
+                {
+                    detailText.SetText("Weight {0:2}", slot.Weight);
+                }
+
+                detailText.gameObject.SetActive(item.MaxStack > 1 || showWeight);
+            }
+
+            Show();
+            transform.SetAsLastSibling();
+            Place(screenPosition);
+        }
+
+        // Puts the box next to the pointer, flipped to the other side of it where it would leave the screen.
+        private void Place(Vector2 screenPosition)
+        {
+            var parent = (RectTransform)_rect.parent;
+            var canvas = GetComponentInParent<Canvas>().rootCanvas;
+            var camera = canvas.renderMode == RenderMode.ScreenSpaceOverlay ? null : canvas.worldCamera;
+            if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(parent, screenPosition, camera, out var local))
+            {
+                return;
+            }
+
+            LayoutRebuilder.ForceRebuildLayoutImmediate(_rect);
+            var size = _rect.rect.size;
+            var bounds = parent.rect;
+
+            var x = local.x + offset.x;
+            if (x + size.x > bounds.xMax)
+            {
+                x = local.x - offset.x - size.x;
+            }
+
+            var y = local.y + offset.y;
+            if (y - size.y < bounds.yMin)
+            {
+                y = local.y - offset.y + size.y;
+            }
+
+            _rect.pivot = new Vector2(0f, 1f);
+            _rect.localPosition = new Vector3(x, y, 0f);
+        }
+    }
+}
+#endif

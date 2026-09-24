@@ -1,0 +1,476 @@
+#if HAS_UNIMVC && HAS_UGUI && HAS_TEXTMESHPRO && HAS_EVENT_SYSTEM && HAS_INPUT_SYSTEM
+using System;
+using TMPro;
+using UniMVC;
+using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.UI;
+using Object = UnityEngine.Object;
+
+namespace InventorySystem.UI
+{
+    /// <summary>
+    /// Base of the panels that show an inventory's slots (<see cref="InventoryListPanel"/>,
+    /// <see cref="InventoryGridPanel"/>): binds to one <see cref="Inventory"/> through its C# events and
+    /// redraws only the slots that change - never polls. Shared behaviour lives here: tooltips on hover,
+    /// click events, and drag and drop within a panel, between panels (<see cref="Inventory.TransferTo"/>,
+    /// e.g. player &lt;-&gt; chest) and out of the UI (<see cref="ItemDroppedOutside"/>).
+    /// </summary>
+    /// <remarks>
+    /// A panel only listens while it is visible, and redraws fully once when it is shown again. Left-drag
+    /// moves the whole stack, right-drag half of it.
+    /// </remarks>
+    public abstract class InventoryContentPanel : PanelViewBase, IDropHandler
+    {
+        private Inventory _subscribed;
+        private Canvas _rootCanvas;
+
+        /// <summary>The inventory shown, or null.</summary>
+        public Inventory Inventory { get; private set; }
+
+        /// <summary>A dragged item was released over nothing of the UI (panel, slot index, amount dragged). Nothing is removed by the panel itself.</summary>
+        public event Action<InventoryContentPanel, int, int> ItemDroppedOutside;
+
+        /// <summary>A slot holding an item was clicked (panel, slot index, button) - e.g. to use or equip it.</summary>
+        public event Action<InventoryContentPanel, int, PointerEventData.InputButton> SlotClicked;
+
+        /// <summary>Whether this panel can show an inventory of <paramref name="type"/>.</summary>
+        public abstract bool Supports(InventoryType type);
+
+        protected Canvas RootCanvas
+        {
+            get
+            {
+                if (_rootCanvas == null)
+                {
+                    var canvas = GetComponentInParent<Canvas>(true);
+                    _rootCanvas = canvas != null ? canvas.rootCanvas : null;
+                }
+
+                return _rootCanvas;
+            }
+        }
+
+        /// <summary>The camera screen points are converted with: null for Screen Space - Overlay canvases.</summary>
+        protected Camera EventCamera =>
+            RootCanvas == null || RootCanvas.renderMode == RenderMode.ScreenSpaceOverlay ? null : RootCanvas.worldCamera;
+
+        /// <summary>Shows <paramref name="inventory"/> (null to show nothing).</summary>
+        public void Bind(Inventory inventory)
+        {
+            if (ReferenceEquals(inventory, Inventory))
+            {
+                return;
+            }
+
+            CancelDrag();
+            Unsubscribe();
+            Inventory = inventory;
+
+            if (isActiveAndEnabled)
+            {
+                Subscribe();
+                Rebuild();
+            }
+        }
+
+        protected virtual void OnEnable()
+        {
+            Subscribe();
+            Rebuild();
+        }
+
+        protected virtual void OnDisable()
+        {
+            Unsubscribe();
+            CancelDrag();
+            HideTooltip();
+        }
+
+        #region Drawing
+
+        /// <summary>Redraws everything. Called when the panel is shown or its inventory changes.</summary>
+        protected abstract void Rebuild();
+
+        /// <summary>Redraws one slot.</summary>
+        protected abstract void RefreshSlot(int index);
+
+        /// <summary>The inventory gained or lost slots.</summary>
+        protected abstract void OnSlotCountChanged(int count);
+
+        /// <summary>Creates a slot button from <paramref name="template"/> under <paramref name="parent"/>, wired to this panel.</summary>
+        protected InventorySlotButton CreateSlot(InventorySlotButton template, Transform parent, int slotIndex)
+        {
+            var slot = Instantiate(template, parent);
+            slot.name = $"Slot {slotIndex}";
+            slot.Owner = this;
+            slot.SlotIndex = slotIndex;
+            slot.Initialize(UI);
+            return slot;
+        }
+
+        private void Subscribe()
+        {
+            if (Inventory == null || _subscribed != null)
+            {
+                return;
+            }
+
+            Inventory.SlotChanged += HandleSlotChanged;
+            Inventory.SlotCountChanged += OnSlotCountChanged;
+            _subscribed = Inventory;
+        }
+
+        private void Unsubscribe()
+        {
+            if (_subscribed == null)
+            {
+                return;
+            }
+
+            _subscribed.SlotChanged -= HandleSlotChanged;
+            _subscribed.SlotCountChanged -= OnSlotCountChanged;
+            _subscribed = null;
+        }
+
+        private void HandleSlotChanged(int index)
+        {
+            RefreshSlot(index);
+
+            // The dragged stack was used up by something else (code, another panel) mid-drag.
+            if (InventoryDrag.SourcePanel == this && InventoryDrag.SlotIndex == index && Inventory.Slots[index].IsEmpty)
+            {
+                CancelDrag();
+            }
+        }
+
+        #endregion
+
+        #region Pointer events forwarded by InventorySlotButton
+
+        internal void OnSlotClicked(InventorySlotButton slot, PointerEventData.InputButton button)
+        {
+            if (TryGetSlot(slot.SlotIndex, out _))
+            {
+                SlotClicked?.Invoke(this, slot.SlotIndex, button);
+            }
+        }
+
+        internal void OnSlotPointerEnter(InventorySlotButton slot, PointerEventData eventData)
+        {
+            if (!InventoryDrag.IsActive && TryGetSlot(slot.SlotIndex, out var inventorySlot) && UI != null
+                && UI.TryGet<InventoryTooltipPanel>(out var tooltip))
+            {
+                tooltip.ShowFor(Inventory, inventorySlot, eventData.position);
+            }
+        }
+
+        internal void OnSlotPointerExit() => HideTooltip();
+
+        internal void OnSlotBeginDrag(InventorySlotButton slot, PointerEventData eventData)
+        {
+            var draggable = eventData.button == PointerEventData.InputButton.Left || eventData.button == PointerEventData.InputButton.Right;
+            if (!draggable || InventoryDrag.IsActive || RootCanvas == null || !TryGetSlot(slot.SlotIndex, out var inventorySlot))
+            {
+                // Cancels the drag: uGUI sends no OnDrag / OnEndDrag / OnDrop without a pointerDrag.
+                eventData.pointerDrag = null;
+                return;
+            }
+
+            var amount = eventData.button == PointerEventData.InputButton.Right && inventorySlot.Amount > 1
+                ? (inventorySlot.Amount + 1) / 2
+                : inventorySlot.Amount;
+
+            HideTooltip();
+            InventoryDrag.Begin(this, slot, slot.SlotIndex, amount, inventorySlot.Rotation);
+            OnDragStarted(slot, inventorySlot, eventData);
+            DragGhost.For(RootCanvas).MoveTo(eventData.position);
+        }
+
+        internal void OnSlotDrag(PointerEventData eventData)
+        {
+            if (InventoryDrag.SourcePanel != this)
+            {
+                return;
+            }
+
+            DragGhost.For(RootCanvas).MoveTo(eventData.position);
+            OnDragMoved(eventData);
+        }
+
+        internal void OnSlotEndDrag(PointerEventData eventData)
+        {
+            if (InventoryDrag.SourcePanel != this)
+            {
+                return;
+            }
+
+            // OnDrop (on whatever was under the pointer) has already run by now.
+            var outside = !InventoryDrag.Handled && eventData.pointerCurrentRaycast.gameObject == null;
+            var slotIndex = InventoryDrag.SlotIndex;
+            var amount = InventoryDrag.Amount;
+
+            CancelDrag();
+
+            if (outside)
+            {
+                ItemDroppedOutside?.Invoke(this, slotIndex, amount);
+            }
+        }
+
+        internal void OnSlotDrop(InventorySlotButton target, PointerEventData eventData) => HandleDrop(target, eventData);
+
+        /// <summary>A drop on the panel itself, not on a slot (e.g. an empty grid cell).</summary>
+        public void OnDrop(PointerEventData eventData) => HandleDrop(null, eventData);
+
+        #endregion
+
+        #region Drag and drop
+
+        /// <summary>Sets up the drag ghost. By default it copies the dragged slot's size.</summary>
+        protected virtual void OnDragStarted(InventorySlotButton slot, InventorySlot inventorySlot, PointerEventData eventData)
+        {
+            var size = slot.RectTransform.rect.size;
+            DragGhost.For(RootCanvas).Show(inventorySlot.Item.Icon, InventoryDrag.Amount, size, new Vector2(0.5f, 0.5f), 0, size * 0.8f);
+        }
+
+        /// <summary>The pointer moved while this panel's item is dragged.</summary>
+        protected virtual void OnDragMoved(PointerEventData eventData)
+        {
+        }
+
+        /// <summary>This panel's drag ended, dropped or not.</summary>
+        protected virtual void OnDragEnded()
+        {
+        }
+
+        /// <summary>
+        /// A drag from the same inventory was dropped on this panel; <paramref name="target"/> is the slot
+        /// under the pointer, or null. By default: <see cref="Inventory.Move"/> onto that slot.
+        /// </summary>
+        protected virtual void DropFromSameInventory(InventorySlotButton target, PointerEventData eventData)
+        {
+            if (target != null && target.SlotIndex != InventoryDrag.SlotIndex)
+            {
+                Inventory.Move(InventoryDrag.SlotIndex, target.SlotIndex, InventoryDrag.Amount);
+            }
+        }
+
+        /// <summary>Stops this panel's drag without dropping anything.</summary>
+        protected void CancelDrag()
+        {
+            if (InventoryDrag.SourcePanel != this)
+            {
+                return;
+            }
+
+            InventoryDrag.End();
+            OnDragEnded();
+        }
+
+        private void HandleDrop(InventorySlotButton target, PointerEventData eventData)
+        {
+            var source = InventoryDrag.SourcePanel;
+            if (source == null || source.Inventory == null || Inventory == null)
+            {
+                return;
+            }
+
+            InventoryDrag.Handled = true;
+
+            if (ReferenceEquals(source.Inventory, Inventory))
+            {
+                DropFromSameInventory(target, eventData);
+            }
+            else
+            {
+                source.Inventory.TransferTo(Inventory, InventoryDrag.SlotIndex, InventoryDrag.Amount);
+            }
+        }
+
+        #endregion
+
+        /// <summary>The non-empty slot at <paramref name="index"/>, if there is one.</summary>
+        protected bool TryGetSlot(int index, out InventorySlot slot)
+        {
+            slot = Inventory != null && (uint)index < (uint)Inventory.SlotCount ? Inventory.Slots[index] : null;
+            return slot != null && !slot.IsEmpty;
+        }
+
+        private void HideTooltip()
+        {
+            if (UI != null && UI.TryGet<InventoryTooltipPanel>(out var tooltip))
+            {
+                tooltip.Hide();
+            }
+        }
+    }
+
+    /// <summary>The one drag in progress, shared by every panel so an item can be dragged from one to another.</summary>
+    internal static class InventoryDrag
+    {
+        public static InventoryContentPanel SourcePanel { get; private set; }
+        public static InventorySlotButton SourceSlot { get; private set; }
+        public static int SlotIndex { get; private set; }
+
+        /// <summary>How many are dragged: the whole stack (left button) or half of it (right button).</summary>
+        public static int Amount { get; private set; }
+
+        /// <summary>Grid drags: the rotation the item will be dropped in. Changed by the rotate input.</summary>
+        public static int Rotation { get; set; }
+
+        /// <summary>Grid drags: which cell of the item the pointer holds, relative to its top-left cell.</summary>
+        public static Vector2Int GrabOffset { get; set; }
+
+        /// <summary>Set by the panel the item was dropped on, so the source knows it didn't land outside.</summary>
+        public static bool Handled { get; set; }
+
+        public static bool IsActive => SourcePanel != null;
+
+        public static void Begin(InventoryContentPanel panel, InventorySlotButton slot, int slotIndex, int amount, int rotation)
+        {
+            SourcePanel = panel;
+            SourceSlot = slot;
+            SlotIndex = slotIndex;
+            Amount = amount;
+            Rotation = rotation;
+            GrabOffset = Vector2Int.zero;
+            Handled = false;
+            slot.SetDragged(true);
+        }
+
+        public static void End()
+        {
+            if (SourceSlot != null)
+            {
+                SourceSlot.SetDragged(false);
+            }
+
+            DragGhost.HideCurrent();
+            SourcePanel = null;
+            SourceSlot = null;
+        }
+
+        // Keeps the static state clean when "Enter Play Mode Options" skips the domain reload.
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void ResetStatics()
+        {
+            SourcePanel = null;
+            SourceSlot = null;
+        }
+    }
+
+    /// <summary>The icon that follows the pointer during a drag, built on first use as the last child of the root canvas.</summary>
+    internal sealed class DragGhost
+    {
+        private static DragGhost _current;
+
+        private readonly Canvas _canvas;
+        private readonly RectTransform _root;
+        private readonly RectTransform _iconRect;
+        private readonly Image _icon;
+        private readonly TextMeshProUGUI _amount;
+
+        private DragGhost(Canvas canvas)
+        {
+            _canvas = canvas;
+
+            var root = new GameObject("Inventory Drag Ghost", typeof(RectTransform), typeof(CanvasGroup));
+            root.layer = canvas.gameObject.layer;
+            _root = (RectTransform)root.transform;
+            _root.SetParent(canvas.transform, false);
+            _root.anchorMin = _root.anchorMax = new Vector2(0.5f, 0.5f);
+
+            var group = root.GetComponent<CanvasGroup>();
+            group.blocksRaycasts = false;
+            group.interactable = false;
+            group.alpha = 0.85f;
+
+            var icon = new GameObject("Icon", typeof(RectTransform), typeof(Image));
+            icon.layer = root.layer;
+            _iconRect = (RectTransform)icon.transform;
+            _iconRect.SetParent(_root, false);
+            _iconRect.anchorMin = _iconRect.anchorMax = new Vector2(0.5f, 0.5f);
+            _icon = icon.GetComponent<Image>();
+            _icon.raycastTarget = false;
+            _icon.preserveAspect = true;
+
+            var amount = new GameObject("Amount", typeof(RectTransform));
+            amount.layer = root.layer;
+            var amountRect = (RectTransform)amount.transform;
+            amountRect.SetParent(_root, false);
+            amountRect.anchorMin = Vector2.zero;
+            amountRect.anchorMax = Vector2.one;
+            amountRect.offsetMin = new Vector2(4f, 2f);
+            amountRect.offsetMax = new Vector2(-4f, -2f);
+            _amount = amount.AddComponent<TextMeshProUGUI>();
+            _amount.raycastTarget = false;
+            _amount.fontSize = 18f;
+            _amount.fontStyle = FontStyles.Bold;
+            _amount.alignment = TextAlignmentOptions.BottomRight;
+
+            root.SetActive(false);
+        }
+
+        /// <summary>The ghost of <paramref name="canvas"/>'s root canvas, built if needed.</summary>
+        public static DragGhost For(Canvas canvas)
+        {
+            var rootCanvas = canvas.rootCanvas;
+            if (_current == null || _current._root == null || _current._canvas != rootCanvas)
+            {
+                if (_current != null && _current._root != null)
+                {
+                    Object.Destroy(_current._root.gameObject);
+                }
+
+                _current = new DragGhost(rootCanvas);
+            }
+
+            return _current;
+        }
+
+        public static void HideCurrent()
+        {
+            if (_current != null && _current._root != null)
+            {
+                _current._root.gameObject.SetActive(false);
+            }
+        }
+
+        /// <param name="size">Size of the ghost, in canvas units.</param>
+        /// <param name="pivot">The point of the ghost under the pointer (0-1).</param>
+        /// <param name="rotation">Clockwise quarter turns of the icon.</param>
+        /// <param name="iconSize">The icon's unrotated size, in canvas units.</param>
+        public void Show(Sprite sprite, int amount, Vector2 size, Vector2 pivot, int rotation, Vector2 iconSize)
+        {
+            _root.gameObject.SetActive(true);
+            _root.SetAsLastSibling();
+            _root.sizeDelta = size;
+            _root.pivot = pivot;
+
+            _icon.sprite = sprite;
+            _icon.enabled = sprite != null;
+            _iconRect.sizeDelta = iconSize;
+            _iconRect.localEulerAngles = new Vector3(0f, 0f, -90f * rotation);
+
+            if (amount > 1)
+            {
+                _amount.SetText("{0}", amount);
+            }
+            else
+            {
+                _amount.SetText(string.Empty);
+            }
+        }
+
+        public void MoveTo(Vector2 screenPosition)
+        {
+            var camera = _canvas.renderMode == RenderMode.ScreenSpaceOverlay ? null : _canvas.worldCamera;
+            if (RectTransformUtility.ScreenPointToLocalPointInRectangle((RectTransform)_canvas.transform, screenPosition, camera, out var local))
+            {
+                _root.localPosition = local;
+            }
+        }
+    }
+}
+#endif

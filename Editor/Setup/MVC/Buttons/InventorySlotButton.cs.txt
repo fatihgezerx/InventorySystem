@@ -1,0 +1,160 @@
+#if HAS_UNIMVC && HAS_UGUI && HAS_TEXTMESHPRO && HAS_EVENT_SYSTEM && HAS_INPUT_SYSTEM
+using TMPro;
+using UniMVC;
+using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.UI;
+
+namespace InventorySystem.UI
+{
+    /// <summary>
+    /// One inventory slot: a button with an icon and an amount label. Holds no inventory logic - every
+    /// pointer event (click, hover, drag, drop) goes to the <see cref="InventoryContentPanel"/> that
+    /// created it, which knows which slot it shows. Left click comes through the Button (so it gets the
+    /// Button's hover / pressed look); other buttons through <see cref="OnPointerClick"/>.
+    /// </summary>
+    [RequireComponent(typeof(CanvasGroup))]
+    public sealed class InventorySlotButton : ButtonViewBase,
+        IPointerClickHandler, IPointerEnterHandler, IPointerExitHandler,
+        IBeginDragHandler, IDragHandler, IEndDragHandler, IDropHandler
+    {
+        [SerializeField] private Image icon;
+
+        [Tooltip("Shows the amount when it is more than 1.")]
+        [SerializeField] private TMP_Text amountText;
+
+        [Tooltip("Opacity of the slot while its item is being dragged.")]
+        [Range(0f, 1f)] [SerializeField] private float draggedAlpha = 0.35f;
+
+        private CanvasGroup _group;
+        private RectTransform _rect;
+
+        /// <summary>The panel this slot belongs to. Set by the panel.</summary>
+        internal InventoryContentPanel Owner { get; set; }
+
+        /// <summary>The slot index this button shows. Set by the panel.</summary>
+        public int SlotIndex { get; internal set; }
+
+        public RectTransform RectTransform => _rect != null ? _rect : _rect = (RectTransform)transform;
+
+        private CanvasGroup Group => _group != null ? _group : _group = GetComponent<CanvasGroup>();
+
+        /// <summary>Draws <paramref name="slot"/>; an empty slot (or null) shows only the background.</summary>
+        public void Show(InventorySlot slot)
+        {
+            if (slot == null || slot.IsEmpty)
+            {
+                ShowEmpty();
+                return;
+            }
+
+            icon.sprite = slot.Item.Icon;
+            icon.enabled = icon.sprite != null;
+
+            if (slot.Amount > 1)
+            {
+                amountText.SetText("{0}", slot.Amount);
+            }
+            else
+            {
+                amountText.SetText(string.Empty);
+            }
+        }
+
+        public void ShowEmpty()
+        {
+            icon.sprite = null;
+            icon.enabled = false;
+            amountText.SetText(string.Empty);
+        }
+
+        /// <summary>
+        /// Grid items: sizes the icon to the item's unrotated footprint and turns it
+        /// <paramref name="rotation"/> quarter turns clockwise, so the sprite keeps its proportions.
+        /// </summary>
+        public void SetIconRotation(int rotation, Vector2 unrotatedSize)
+        {
+            var iconRect = icon.rectTransform;
+            iconRect.anchorMin = iconRect.anchorMax = new Vector2(0.5f, 0.5f);
+            iconRect.anchoredPosition = Vector2.zero;
+            iconRect.sizeDelta = unrotatedSize;
+            iconRect.localEulerAngles = new Vector3(0f, 0f, -90f * rotation);
+        }
+
+        /// <summary>Fades the slot and lets raycasts pass through it while its item is dragged.</summary>
+        internal void SetDragged(bool dragged)
+        {
+            Group.alpha = dragged ? draggedAlpha : 1f;
+            Group.blocksRaycasts = !dragged;
+        }
+
+        protected override void OnClick()
+        {
+            if (Owner != null)
+            {
+                Owner.OnSlotClicked(this, PointerEventData.InputButton.Left);
+            }
+        }
+
+        public void OnPointerClick(PointerEventData eventData)
+        {
+            if (Owner != null && eventData.button != PointerEventData.InputButton.Left)
+            {
+                Owner.OnSlotClicked(this, eventData.button);
+            }
+        }
+
+        public void OnPointerEnter(PointerEventData eventData)
+        {
+            if (Owner != null)
+            {
+                Owner.OnSlotPointerEnter(this, eventData);
+            }
+        }
+
+        public void OnPointerExit(PointerEventData eventData)
+        {
+            if (Owner != null)
+            {
+                Owner.OnSlotPointerExit();
+            }
+        }
+
+        public void OnBeginDrag(PointerEventData eventData)
+        {
+            if (Owner != null)
+            {
+                Owner.OnSlotBeginDrag(this, eventData);
+            }
+            else
+            {
+                eventData.pointerDrag = null;
+            }
+        }
+
+        public void OnDrag(PointerEventData eventData)
+        {
+            if (Owner != null)
+            {
+                Owner.OnSlotDrag(eventData);
+            }
+        }
+
+        public void OnEndDrag(PointerEventData eventData)
+        {
+            if (Owner != null)
+            {
+                Owner.OnSlotEndDrag(eventData);
+            }
+        }
+
+        public void OnDrop(PointerEventData eventData)
+        {
+            if (Owner != null)
+            {
+                Owner.OnSlotDrop(this, eventData);
+            }
+        }
+    }
+}
+#endif

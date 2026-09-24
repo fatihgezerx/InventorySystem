@@ -1,0 +1,144 @@
+#if HAS_UNIMVC && HAS_UGUI && HAS_TEXTMESHPRO && HAS_EVENT_SYSTEM && HAS_INPUT_SYSTEM
+using System.Collections.Generic;
+using EventSystem;
+using UniMVC;
+using UnityEngine;
+
+namespace InventorySystem.UI
+{
+    /// <summary>
+    /// Pickup toasts ("+3 Apple") and "no room" warnings for the main inventory, driven purely by
+    /// <see cref="ItemAddedEvent"/> / <see cref="InventoryFullEvent"/> - it works whether the inventory
+    /// window is open or not. Picking up more of an item that still has a toast on screen adds to that
+    /// toast instead of stacking a new one. Toasts are pooled, and the panel only runs <c>Update</c> while
+    /// one is on screen; timing is unscaled, so they also fade while the game is paused.
+    /// </summary>
+    public sealed class InventoryNotificationPanel : PanelViewBase
+    {
+        [SerializeField] private InventoryToastPanel toastTemplate;
+
+        [Tooltip("Toasts are added here as the last child; give it a VerticalLayoutGroup. Empty: this object.")]
+        [SerializeField] private RectTransform container;
+
+        [Min(1)] [SerializeField] private int maxToasts = 5;
+        [Min(0.1f)] [SerializeField] private float displaySeconds = 2.5f;
+        [Min(0f)] [SerializeField] private float fadeSeconds = 0.4f;
+
+        [SerializeField] private Color addedColor = Color.white;
+        [SerializeField] private Color fullColor = new(1f, 0.45f, 0.4f, 1f);
+
+        [Tooltip("{0} = amount, {1} = item name.")]
+        [SerializeField] private string addedFormat = "+{0} {1}";
+
+        [Tooltip("{0} = amount that didn't fit, {1} = item name.")]
+        [SerializeField] private string fullFormat = "Inventory full: {1}";
+
+        private readonly List<InventoryToastPanel> _active = new();
+        private readonly Stack<InventoryToastPanel> _pool = new();
+
+        protected override void OnInitialize()
+        {
+            base.OnInitialize();
+            EventManager.Register<ItemAddedEvent>(OnItemAdded);
+            EventManager.Register<InventoryFullEvent>(OnInventoryFull);
+            enabled = false;
+        }
+
+        private void OnDestroy()
+        {
+            EventManager.Unregister<ItemAddedEvent>(OnItemAdded);
+            EventManager.Unregister<InventoryFullEvent>(OnInventoryFull);
+        }
+
+        private void OnItemAdded(ItemAddedEvent e) => Notify(e.Item, e.Amount, false);
+
+        private void OnInventoryFull(InventoryFullEvent e) => Notify(e.Item, e.Amount, true);
+
+        private void Notify(ItemDefinition item, int amount, bool full)
+        {
+            if (this == null || item == null || toastTemplate == null)
+            {
+                return;
+            }
+
+            var toast = FindActive(item, full);
+            if (toast != null)
+            {
+                toast.Amount += amount;
+            }
+            else
+            {
+                toast = Take();
+                toast.Item = item;
+                toast.IsFull = full;
+                toast.Amount = amount;
+            }
+
+            toast.transform.SetAsLastSibling();
+            toast.Set(item.Icon, string.Format(full ? fullFormat : addedFormat, toast.Amount, item.DisplayName),
+                full ? fullColor : addedColor);
+            toast.TimeLeft = displaySeconds + fadeSeconds;
+            toast.Group.alpha = 1f;
+            enabled = true;
+        }
+
+        private void Update()
+        {
+            var deltaTime = Time.unscaledDeltaTime;
+            for (var i = _active.Count - 1; i >= 0; i--)
+            {
+                var toast = _active[i];
+                toast.TimeLeft -= deltaTime;
+                if (toast.TimeLeft <= 0f)
+                {
+                    Release(toast);
+                }
+                else if (toast.TimeLeft < fadeSeconds)
+                {
+                    toast.Group.alpha = toast.TimeLeft / fadeSeconds;
+                }
+            }
+
+            if (_active.Count == 0)
+            {
+                enabled = false;
+            }
+        }
+
+        private InventoryToastPanel FindActive(ItemDefinition item, bool full)
+        {
+            foreach (var toast in _active)
+            {
+                if (toast.Item == item && toast.IsFull == full)
+                {
+                    return toast;
+                }
+            }
+
+            return null;
+        }
+
+        private InventoryToastPanel Take()
+        {
+            // Too many on screen: recycle the oldest.
+            if (_active.Count >= maxToasts)
+            {
+                Release(_active[0]);
+            }
+
+            var toast = _pool.Count > 0 ? _pool.Pop() : Instantiate(toastTemplate, container != null ? container : transform);
+            toast.gameObject.SetActive(true);
+            _active.Add(toast);
+            return toast;
+        }
+
+        private void Release(InventoryToastPanel toast)
+        {
+            toast.Item = null;
+            toast.gameObject.SetActive(false);
+            _active.Remove(toast);
+            _pool.Push(toast);
+        }
+    }
+}
+#endif

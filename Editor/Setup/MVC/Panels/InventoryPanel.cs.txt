@@ -1,0 +1,475 @@
+#if HAS_UNIMVC && HAS_UGUI && HAS_TEXTMESHPRO && HAS_EVENT_SYSTEM && HAS_INPUT_SYSTEM
+using System.Collections.Generic;
+using TMPro;
+using UniMVC;
+using UnityEngine;
+using UnityEngine.InputSystem;
+
+namespace InventorySystem.UI
+{
+    /// <summary>
+    /// The inventory window: shows the content panel that fits the inventory's mode (an
+    /// <see cref="InventoryListPanel"/> for Unlimited / Weight / MaxSlot, an <see cref="InventoryGridPanel"/>
+    /// for Grid), how full it is - "12.5 / 50" with a bar in Weight mode, "8 / 20" slots, or used / total
+    /// cells - and drops items dragged out of the UI into the world through <see cref="ItemSpawner"/>.
+    /// </summary>
+    /// <remarks>
+    /// By default it shows <see cref="InventoryManager.Main"/> and toggles with the project-wide "Inventory"
+    /// action, or Tab / I when there is none. For a chest, turn off Bind To Main Inventory and Toggle With
+    /// Input and call <see cref="Open"/>. While any inventory window is open the cursor is freed and the
+    /// Player action map is paused (except the toggle), so the player doesn't look around or interact
+    /// while dragging.
+    /// </remarks>
+    public sealed class InventoryPanel : PanelViewBase
+    {
+        [Header("Content")]
+        [Tooltip("The first one that supports the inventory's mode is shown; the others are hidden.")]
+        [SerializeField] private InventoryContentPanel[] contents;
+
+        [Tooltip("\"used / max\" of the inventory's limit.")]
+        [SerializeField] private TMP_Text capacityText;
+
+        [Tooltip("Weight mode only: shown, and filled to total / max weight.")]
+        [SerializeField] private GameObject weightBar;
+
+        [Tooltip("Stretched horizontally to total / max weight.")]
+        [SerializeField] private RectTransform weightFill;
+
+        [Header("Behaviour")]
+        [SerializeField] private bool bindToMainInventory = true;
+        [SerializeField] private bool startOpen;
+        [SerializeField] private bool toggleWithInput = true;
+
+        [Tooltip("Opens / closes the window. Empty: the project-wide action \"Inventory\" if there is one, otherwise Tab / I.")]
+        [SerializeField] private InputActionReference toggleAction;
+
+        [Tooltip("Close on the project-wide \"UI/Cancel\" action (Escape).")]
+        [SerializeField] private bool closeOnCancel = true;
+
+        [Tooltip("Free and show the cursor while open; restored on close.")]
+        [SerializeField] private bool unlockCursor = true;
+
+        [Tooltip("Pause every action of Player Action Map (except the toggle) while open.")]
+        [SerializeField] private bool blockPlayerInput = true;
+
+        [SerializeField] private string playerActionMap = "Player";
+
+        [Header("Dropping into the world")]
+        [Tooltip("Items dragged out of the UI are dropped in front of the object with this tag.")]
+        [SerializeField] private string dropOriginTag = "Player";
+
+        [Tooltip("Where dropped items land, in the origin's local space (x right, y up, z forward).")]
+        [SerializeField] private Vector3 dropOffset = new(0f, 1f, 1.5f);
+
+        [Tooltip("Random horizontal spread, so several dropped objects don't spawn inside each other.")]
+        [Min(0f)] [SerializeField] private float dropScatter = 0.3f;
+
+        // Shared by every inventory window: the first to open saves and changes the state, the last to close restores it.
+        private static int _openCount;
+        private static CursorLockMode _savedLockState;
+        private static bool _savedCursorVisible;
+        private static readonly List<InputAction> BlockedActions = new();
+
+        private InputAction _toggle;
+        private InputAction _cancel;
+        private bool _ownsToggle;
+        private bool _holdsSharedState;
+        private Inventory _headerSource;
+        private Transform _dropOrigin;
+
+        /// <summary>The inventory shown, or null.</summary>
+        public Inventory Inventory { get; private set; }
+
+        /// <summary>The content panel showing <see cref="Inventory"/>, or null.</summary>
+        public InventoryContentPanel ActiveContent { get; private set; }
+
+        protected override void OnInitialize()
+        {
+            base.OnInitialize();
+
+            foreach (var content in contents)
+            {
+                if (content != null)
+                {
+                    content.Initialize(UI);
+                    content.ItemDroppedOutside += DropIntoWorld;
+                }
+            }
+
+            if (bindToMainInventory)
+            {
+                InventoryManager.MainChanged += Bind;
+                Bind(InventoryManager.Main);
+            }
+
+            HookInput();
+
+            if (startOpen)
+            {
+                if (IsVisible)
+                {
+                    OnShown();
+                }
+                else
+                {
+                    Show();
+                }
+            }
+            else if (IsVisible)
+            {
+                gameObject.SetActive(false);
+            }
+        }
+
+        /// <summary>Shows <paramref name="inventory"/> (null to show nothing) with the content panel that supports its mode.</summary>
+        public void Bind(Inventory inventory)
+        {
+            // Raised by a static event after this window was destroyed without ever being enabled.
+            if (this == null)
+            {
+                Teardown();
+                return;
+            }
+
+            Inventory = inventory;
+            ActiveContent = null;
+
+            foreach (var content in contents)
+            {
+                if (content == null)
+                {
+                    continue;
+                }
+
+                var use = ActiveContent == null && inventory != null && content.Supports(inventory.Type);
+                if (use)
+                {
+                    ActiveContent = content;
+                }
+
+                content.Bind(use ? inventory : null);
+                content.gameObject.SetActive(use);
+            }
+
+            if (IsVisible)
+            {
+                ListenToHeader(inventory);
+            }
+        }
+
+        /// <summary>Binds <paramref name="inventory"/> and shows the window - e.g. for a chest.</summary>
+        public void Open(Inventory inventory)
+        {
+            Bind(inventory);
+            Show();
+        }
+
+        protected override void OnShown()
+        {
+            ListenToHeader(Inventory);
+            AcquireSharedState();
+        }
+
+        protected override void OnHidden()
+        {
+            ListenToHeader(null);
+            if (UI != null && UI.TryGet<InventoryTooltipPanel>(out var tooltip))
+            {
+                tooltip.Hide();
+            }
+
+            ReleaseSharedState();
+        }
+
+        private void OnDestroy() => Teardown();
+
+        private void Teardown()
+        {
+            InventoryManager.MainChanged -= Bind;
+            ListenToHeader(null);
+            ReleaseSharedState();
+
+            if (contents != null)
+            {
+                foreach (var content in contents)
+                {
+                    if (content != null)
+                    {
+                        content.ItemDroppedOutside -= DropIntoWorld;
+                    }
+                }
+            }
+
+            if (_toggle != null)
+            {
+                _toggle.performed -= OnTogglePerformed;
+                if (_ownsToggle)
+                {
+                    _toggle.Dispose();
+                }
+
+                _toggle = null;
+            }
+
+            if (_cancel != null)
+            {
+                _cancel.performed -= OnCancelPerformed;
+                _cancel = null;
+            }
+        }
+
+        #region Input
+
+        private void HookInput()
+        {
+            if (toggleWithInput)
+            {
+                _toggle = toggleAction != null && toggleAction.action != null ? toggleAction.action : null;
+                if (_toggle == null && InputSystem.actions != null)
+                {
+                    _toggle = InputSystem.actions.FindAction("Inventory");
+                }
+
+                if (_toggle == null)
+                {
+                    _toggle = new InputAction("Inventory", InputActionType.Button, "<Keyboard>/tab");
+                    _toggle.AddBinding("<Keyboard>/i");
+                    _toggle.AddBinding("<Gamepad>/select");
+                    _ownsToggle = true;
+                }
+
+                _toggle.performed += OnTogglePerformed;
+                _toggle.Enable();
+            }
+
+            if (closeOnCancel && InputSystem.actions != null)
+            {
+                _cancel = InputSystem.actions.FindAction("UI/Cancel");
+                if (_cancel != null)
+                {
+                    _cancel.performed += OnCancelPerformed;
+                    _cancel.Enable();
+                }
+            }
+        }
+
+        private void OnTogglePerformed(InputAction.CallbackContext context)
+        {
+            if (this == null)
+            {
+                Teardown();
+                return;
+            }
+
+            Toggle();
+        }
+
+        private void OnCancelPerformed(InputAction.CallbackContext context)
+        {
+            if (this == null)
+            {
+                Teardown();
+                return;
+            }
+
+            Hide();
+        }
+
+        #endregion
+
+        #region Header
+
+        // The header only listens while the window is open.
+        private void ListenToHeader(Inventory inventory)
+        {
+            if (_headerSource != null)
+            {
+                _headerSource.Changed -= RefreshHeader;
+            }
+
+            _headerSource = inventory;
+            if (_headerSource != null)
+            {
+                _headerSource.Changed += RefreshHeader;
+            }
+
+            if (this != null)
+            {
+                RefreshHeader();
+            }
+        }
+
+        private void RefreshHeader()
+        {
+            var inventory = Inventory;
+            var weight = inventory as ListInventory;
+            var showWeight = weight != null && weight.Type == InventoryType.Weight;
+
+            if (weightBar != null && weightBar.activeSelf != showWeight)
+            {
+                weightBar.SetActive(showWeight);
+            }
+
+            if (showWeight && weightFill != null)
+            {
+                var ratio = weight.MaxWeight > 0f ? Mathf.Clamp01(weight.TotalWeight / weight.MaxWeight) : 0f;
+                weightFill.anchorMin = Vector2.zero;
+                weightFill.anchorMax = new Vector2(ratio, 1f);
+                weightFill.offsetMin = weightFill.offsetMax = Vector2.zero;
+            }
+
+            if (capacityText == null)
+            {
+                return;
+            }
+
+            switch (inventory)
+            {
+                case null:
+                    capacityText.SetText(string.Empty);
+                    break;
+                case GridInventory grid:
+                    capacityText.SetText("{0} / {1}", grid.CellCount - grid.FreeCellCount, grid.CellCount);
+                    break;
+                case ListInventory list when list.Type == InventoryType.Weight:
+                    capacityText.SetText("{0:1} / {1:1}", list.TotalWeight, list.MaxWeight);
+                    break;
+                case ListInventory list when list.Type == InventoryType.MaxSlot:
+                    capacityText.SetText("{0} / {1}", list.UsedSlotCount, list.MaxSlots);
+                    break;
+                default:
+                    capacityText.SetText("{0}", inventory.UsedSlotCount);
+                    break;
+            }
+        }
+
+        #endregion
+
+        #region Dropping into the world
+
+        // A stackable item drops as one object carrying the whole amount; other items as one object each.
+        private void DropIntoWorld(InventoryContentPanel content, int slotIndex, int amount)
+        {
+            var inventory = content.Inventory;
+            if (inventory == null || (uint)slotIndex >= (uint)inventory.SlotCount)
+            {
+                return;
+            }
+
+            var item = inventory.Slots[slotIndex].Item;
+            if (item == null || item.Prefab == null)
+            {
+                return;
+            }
+
+            if (_dropOrigin == null)
+            {
+                var tagged = GameObject.FindWithTag(dropOriginTag);
+                _dropOrigin = tagged != null ? tagged.transform : null;
+                if (_dropOrigin == null)
+                {
+                    Debug.LogWarning($"[InventoryPanel] No GameObject tagged '{dropOriginTag}' to drop items in front of.", this);
+                    return;
+                }
+            }
+
+            var removed = inventory.RemoveAt(slotIndex, amount);
+            if (item.MaxStack > 1)
+            {
+                SpawnDropped(item, removed);
+                return;
+            }
+
+            for (var i = 0; i < removed; i++)
+            {
+                SpawnDropped(item, 1);
+            }
+        }
+
+        private void SpawnDropped(ItemDefinition item, int amount)
+        {
+            var random = Random.insideUnitCircle * dropScatter;
+            var position = _dropOrigin.TransformPoint(dropOffset + new Vector3(random.x, 0f, random.y));
+            ItemSpawner.Spawn(item, amount, position, Quaternion.Euler(0f, _dropOrigin.eulerAngles.y, 0f));
+        }
+
+        #endregion
+
+        #region Cursor and player input
+
+        private void AcquireSharedState()
+        {
+            if (_holdsSharedState)
+            {
+                return;
+            }
+
+            _holdsSharedState = true;
+            if (_openCount++ > 0)
+            {
+                return;
+            }
+
+            if (unlockCursor)
+            {
+                _savedLockState = Cursor.lockState;
+                _savedCursorVisible = Cursor.visible;
+                Cursor.lockState = CursorLockMode.None;
+                Cursor.visible = true;
+            }
+
+            var map = blockPlayerInput && InputSystem.actions != null ? InputSystem.actions.FindActionMap(playerActionMap) : null;
+            if (map == null)
+            {
+                return;
+            }
+
+            foreach (var action in map.actions)
+            {
+                if (action.enabled && action != _toggle)
+                {
+                    action.Disable();
+                    BlockedActions.Add(action);
+                }
+            }
+        }
+
+        private void ReleaseSharedState()
+        {
+            if (!_holdsSharedState)
+            {
+                return;
+            }
+
+            _holdsSharedState = false;
+            if (--_openCount > 0)
+            {
+                return;
+            }
+
+            if (unlockCursor)
+            {
+                Cursor.lockState = _savedLockState;
+                Cursor.visible = _savedCursorVisible;
+            }
+
+            foreach (var action in BlockedActions)
+            {
+                action.Enable();
+            }
+
+            BlockedActions.Clear();
+        }
+
+        // Keeps the shared state clean when "Enter Play Mode Options" skips the domain reload.
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void ResetStatics()
+        {
+            _openCount = 0;
+            BlockedActions.Clear();
+        }
+
+        #endregion
+    }
+}
+#endif
