@@ -26,6 +26,11 @@ namespace InventorySystem.Setup
     /// <c>Assets/Scripts/...</c> - exactly as if it had been copied there by hand, so every file stays
     /// visible and editable.</item>
     /// </list>
+    /// It also keeps <c>HAS_INVENTORY_SYSTEM</c> set while Inventory System is in the project, so code that
+    /// uses it from outside (the MVC scripts it adds) can be left out of compilation once it's removed.
+    /// When Inventory System is deleted, the guard clears every symbol it manages, since nothing would
+    /// keep them up to date afterwards; the guards of other systems still in the project set the shared
+    /// ones again after the reload.
     /// </remarks>
     [InitializeOnLoad]
     internal sealed class DependencyGuard : AssetPostprocessor, IActiveBuildTargetChanged
@@ -33,6 +38,7 @@ namespace InventorySystem.Setup
         internal const string SystemName = "Inventory System";
         private const string DeclinedKey = "InventorySystem.Setup.DeclinedDependencies";
         private const string SetupAsmdefFile = "InventorySystem.Setup.asmdef";
+        private const string OwnDefine = "HAS_INVENTORY_SYSTEM";
         private const string Branch = "main";
 
         /// <summary>Everything Inventory System uses. Optional ones (with a purpose) only enable extra features.</summary>
@@ -66,9 +72,24 @@ namespace InventorySystem.Setup
         // symbols right away, during this import, so the compilation that follows already uses them.
         private static void OnPostprocessAllAssets(string[] imported, string[] deleted, string[] moved, string[] movedFrom)
         {
-            // Inventory System itself was deleted or imported again: forget an earlier "Not now", so a
-            // fresh copy asks again even within the same editor session.
-            if (ContainsFile(imported, SetupAsmdefFile) || ContainsFile(deleted, SetupAsmdefFile))
+            // Inventory System itself is being deleted: clear every symbol it manages, or a leftover one
+            // (e.g. HAS_EVENT_SYSTEM once Event System is gone too) would let a later copy compile against
+            // a missing dependency. Also forget an earlier "Not now", so a fresh copy asks again.
+            if (ContainsFile(deleted, SetupAsmdefFile))
+            {
+                SessionState.EraseString(DeclinedKey);
+                var symbols = new Dictionary<string, bool> { [OwnDefine] = false };
+                foreach (var dependency in Dependencies)
+                {
+                    symbols[dependency.Define] = false;
+                }
+
+                ApplyDefines(symbols);
+                return;
+            }
+
+            // Imported again (e.g. a newer copy): ask again too.
+            if (ContainsFile(imported, SetupAsmdefFile))
             {
                 SessionState.EraseString(DeclinedKey);
             }
@@ -102,7 +123,7 @@ namespace InventorySystem.Setup
         internal static bool Refresh(bool prompt)
         {
             var assemblies = FindAssemblyDefinitions();
-            var symbols = new Dictionary<string, bool>();
+            var symbols = new Dictionary<string, bool> { [OwnDefine] = true };
             var missing = new List<Dependency>();
 
             foreach (var dependency in Dependencies)

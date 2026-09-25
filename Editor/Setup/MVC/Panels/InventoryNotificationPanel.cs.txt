@@ -1,4 +1,4 @@
-#if HAS_UNIMVC && HAS_EVENT_SYSTEM && HAS_INPUT_SYSTEM
+#if HAS_INVENTORY_SYSTEM && HAS_UNIMVC && HAS_EVENT_SYSTEM && HAS_INPUT_SYSTEM
 using System.Collections.Generic;
 using UniMVC;
 using UnityEngine;

@@ -137,7 +137,8 @@ already in the project when you import InventorySystem, or as soon as UniMVC is 
 the setup dialog). They become your own project code, so edit them freely. Existing files are never
 overwritten, and a view you delete isn't brought back unless InventorySystem or UniMVC is imported again.
 Until EventSystem and the Input System are installed too, the views compile to nothing, so they never
-cause errors.
+cause errors. The same goes if you remove InventorySystem later and keep the views: they stay in your
+project, compiled to nothing, and come back to life when InventorySystem is imported again.
 
 | File | Base | What it does |
 |---|---|---|
