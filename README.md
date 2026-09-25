@@ -188,7 +188,10 @@ With [LocalizationSystem](https://github.com/fatihgezerx/LocalizationSystem) in 
 window finds them in the InventoryData and adds each one as a row. The UI's tooltip and pickup toasts
 then show item names in the current language. In your own code, show
 `LocalizationRuntime.Get(item.DisplayName)` / `LocalizationRuntime.Get(item.Description)`. The Name is
-still what Compile turns into the `ItemTypes` member, so translating it never changes your code.
+still what Compile turns into the `ItemTypes` member, so translating it never changes your code. When the
+language changes, `InventoryController` resizes the open inventory window, tooltip and notifications to
+their translated texts in the same frame (UniMVC's `RebuildLayoutLater`). Hidden ones are resized when
+they are shown, if their **Rebuild Layout On Show** is ticked.
 
 It is optional: without LocalizationSystem, InventorySystem compiles and shows the Names as written.
 Install it later and they become translatable on their own, no change needed. The UI labels filled by

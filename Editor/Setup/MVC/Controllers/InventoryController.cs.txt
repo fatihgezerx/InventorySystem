@@ -1,5 +1,8 @@
 #if HAS_INVENTORY_SYSTEM && HAS_UNIMVC && HAS_EVENT_SYSTEM && HAS_INPUT_SYSTEM
 using EventSystem;
+#if HAS_LOCALIZATION_SYSTEM
+using LocalizationSystem;
+#endif
 using UniMVC;
 
 namespace InventorySystem.UI
@@ -11,7 +14,9 @@ namespace InventorySystem.UI
     /// </summary>
     /// <remarks>
     /// The inventory panels draw the slots straight from the <see cref="Inventory"/> they show (so a chest
-    /// works the same way) and redraw fully when they open, so they don't need the global events.
+    /// works the same way) and redraw fully when they open, so they don't need the global events. With
+    /// LocalizationSystem, it also resizes the open inventory panels to their translated texts when the
+    /// language changes.
     /// </remarks>
     public sealed class InventoryController : ControllerBase
     {
@@ -19,12 +24,18 @@ namespace InventorySystem.UI
         {
             EventManager.Register<ItemAddedEvent>(OnItemAdded);
             EventManager.Register<InventoryFullEvent>(OnInventoryFull);
+#if HAS_LOCALIZATION_SYSTEM
+            LocalizationRuntime.LanguageChanged += OnLanguageChanged;
+#endif
         }
 
         private void OnDestroy()
         {
             EventManager.Unregister<ItemAddedEvent>(OnItemAdded);
             EventManager.Unregister<InventoryFullEvent>(OnInventoryFull);
+#if HAS_LOCALIZATION_SYSTEM
+            LocalizationRuntime.LanguageChanged -= OnLanguageChanged;
+#endif
         }
 
         private void OnItemAdded(ItemAddedEvent e)
@@ -42,6 +53,28 @@ namespace InventorySystem.UI
                 notifications.Notify(e.Item, e.Amount, true);
             }
         }
+
+#if HAS_LOCALIZATION_SYSTEM
+        // Later, not now: the labels translate themselves on the same event, some only after this runs.
+        // Hidden panels are skipped; they are sized when shown (Rebuild Layout On Show).
+        private void OnLanguageChanged()
+        {
+            if (UI.TryGet<InventoryPanel>(out var window))
+            {
+                window.RebuildLayoutLater();
+            }
+
+            if (UI.TryGet<InventoryTooltipPanel>(out var tooltip))
+            {
+                tooltip.RebuildLayoutLater();
+            }
+
+            if (UI.TryGet<InventoryNotificationPanel>(out var notifications))
+            {
+                notifications.RebuildLayoutLater();
+            }
+        }
+#endif
     }
 }
 #endif
