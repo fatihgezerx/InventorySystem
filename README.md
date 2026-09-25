@@ -151,7 +151,7 @@ cause errors.
 | `Panels/InventoryToastPanel` | `PanelViewBase` | One toast |
 | `Buttons/InventorySlotButton` | `ButtonViewBase` | One slot: icon, amount, click / hover / drag |
 | `Buttons/InventoryCloseButton` | `ButtonViewBase` | Closes the window it sits in |
-| `Editor/InventoryUIBuilder` | - | `GameObject > UI > Inventory System` menu |
+| `Panels/Editor/InventoryUIBuilder` | - | `GameObject > UI > Inventory System` menu (not in `MVC/Editor/`: that folder is UniMVC's own editor assembly, which can't see your views) |
 
 **Setup:** right-click the Canvas, then **UI > Inventory System > Inventory Window** (and
 **Inventory Notifications**). This builds everything fully wired, adds a `UIManager` and the
