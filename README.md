@@ -146,16 +146,18 @@ cause errors.
 | `Panels/InventoryListPanel` | `InventoryContentPanel` | Unlimited / Weight / MaxSlot: rows of slots |
 | `Panels/InventoryGridPanel` | `InventoryContentPanel` | Grid: cells, items sized to their shape, green / red drop preview, rotate while dragging |
 | `Panels/InventoryTooltipPanel` | `PanelViewBase` | Item name, stack and weight on hover |
-| `Panels/InventoryNotificationPanel` | `PanelViewBase` | "+3 Apple" / "Inventory full" toasts, merged per item |
+| `Controllers/InventoryController` | `ControllerBase` | The only listener to the inventory's events; passes them on to the views |
+| `Panels/InventoryNotificationPanel` | `PanelViewBase` | "+3 Apple" / "Inventory full" toasts, merged per item; shown only while a toast is on screen |
 | `Panels/InventoryToastPanel` | `PanelViewBase` | One toast |
 | `Buttons/InventorySlotButton` | `ButtonViewBase` | One slot: icon, amount, click / hover / drag |
 | `Buttons/InventoryCloseButton` | `ButtonViewBase` | Closes the window it sits in |
 | `Editor/InventoryUIBuilder` | - | `GameObject > UI > Inventory System` menu |
 
 **Setup:** right-click the Canvas, then **UI > Inventory System > Inventory Window** (and
-**Inventory Notifications**). This builds everything fully wired, adds a `UIManager` to the canvas if it
-has none, and lists the new panels in it (and the window's own views in the window). Call
-`UIManager.Initialize()` from your bootstrap code, after `InventoryManager.Initialize`.
+**Inventory Notifications**). This builds everything fully wired, adds a `UIManager` and the
+`InventoryController` to the canvas if they are missing, and lists the new panels and the controller in
+the `UIManager` (and the window's own views in the window). Call `UIManager.Initialize()` from your
+bootstrap code, after `InventoryManager.Initialize`.
 
 **Controls**
 

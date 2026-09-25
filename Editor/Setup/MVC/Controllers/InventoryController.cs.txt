@@ -1,0 +1,47 @@
+#if HAS_UNIMVC && HAS_EVENT_SYSTEM && HAS_INPUT_SYSTEM
+using EventSystem;
+using UniMVC;
+
+namespace InventorySystem.UI
+{
+    /// <summary>
+    /// The inventory's link to the UI: the only place that listens to the inventory's
+    /// <see cref="EventManager"/> events, passing them on to the views. It sits on the
+    /// <see cref="UIManager"/>'s object, which is always active, so nothing is missed while a panel is closed.
+    /// </summary>
+    /// <remarks>
+    /// The inventory panels draw the slots straight from the <see cref="Inventory"/> they show (so a chest
+    /// works the same way) and redraw fully when they open, so they don't need the global events.
+    /// </remarks>
+    public sealed class InventoryController : ControllerBase
+    {
+        protected override void OnInitialize()
+        {
+            EventManager.Register<ItemAddedEvent>(OnItemAdded);
+            EventManager.Register<InventoryFullEvent>(OnInventoryFull);
+        }
+
+        private void OnDestroy()
+        {
+            EventManager.Unregister<ItemAddedEvent>(OnItemAdded);
+            EventManager.Unregister<InventoryFullEvent>(OnInventoryFull);
+        }
+
+        private void OnItemAdded(ItemAddedEvent e)
+        {
+            if (UI.TryGet<InventoryNotificationPanel>(out var notifications))
+            {
+                notifications.Notify(e.Item, e.Amount, false);
+            }
+        }
+
+        private void OnInventoryFull(InventoryFullEvent e)
+        {
+            if (UI.TryGet<InventoryNotificationPanel>(out var notifications))
+            {
+                notifications.Notify(e.Item, e.Amount, true);
+            }
+        }
+    }
+}
+#endif

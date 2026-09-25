@@ -1,17 +1,16 @@
 #if HAS_UNIMVC && HAS_EVENT_SYSTEM && HAS_INPUT_SYSTEM
 using System.Collections.Generic;
-using EventSystem;
 using UniMVC;
 using UnityEngine;
 
 namespace InventorySystem.UI
 {
     /// <summary>
-    /// Pickup toasts ("+3 Apple") and "no room" warnings for the main inventory, driven purely by
-    /// <see cref="ItemAddedEvent"/> / <see cref="InventoryFullEvent"/> - it works whether the inventory
-    /// window is open or not. Picking up more of an item that still has a toast on screen adds to that
-    /// toast instead of stacking a new one. Toasts are pooled, and the panel only runs <c>Update</c> while
-    /// one is on screen; timing is unscaled, so they also fade while the game is paused.
+    /// Pickup toasts ("+3 Apple") and "no room" warnings for the main inventory. It doesn't listen to
+    /// anything itself: <see cref="InventoryController"/> calls <see cref="Notify"/>, and the panel shows
+    /// itself for as long as a toast is on screen, then hides again. Picking up more of an item that still
+    /// has a toast on screen adds to that toast instead of stacking a new one. Toasts are pooled; timing is
+    /// unscaled, so they also fade while the game is paused.
     /// </summary>
     public sealed class InventoryNotificationPanel : PanelViewBase
     {
@@ -39,27 +38,23 @@ namespace InventorySystem.UI
         protected override void OnInitialize()
         {
             base.OnInitialize();
-            EventManager.Register<ItemAddedEvent>(OnItemAdded);
-            EventManager.Register<InventoryFullEvent>(OnInventoryFull);
-            enabled = false;
+
+            // Hidden until the first toast.
+            if (IsVisible)
+            {
+                gameObject.SetActive(false);
+            }
         }
 
-        private void OnDestroy()
+        /// <summary>Shows "+<paramref name="amount"/> item", or "Inventory full: item" when <paramref name="full"/>.</summary>
+        public void Notify(ItemDefinition item, int amount, bool full)
         {
-            EventManager.Unregister<ItemAddedEvent>(OnItemAdded);
-            EventManager.Unregister<InventoryFullEvent>(OnInventoryFull);
-        }
-
-        private void OnItemAdded(ItemAddedEvent e) => Notify(e.Item, e.Amount, false);
-
-        private void OnInventoryFull(InventoryFullEvent e) => Notify(e.Item, e.Amount, true);
-
-        private void Notify(ItemDefinition item, int amount, bool full)
-        {
-            if (this == null || item == null || toastTemplate == null)
+            if (item == null || toastTemplate == null)
             {
                 return;
             }
+
+            Show();
 
             var toast = FindActive(item, full);
             if (toast != null)
@@ -79,7 +74,6 @@ namespace InventorySystem.UI
                 full ? fullColor : addedColor);
             toast.TimeLeft = displaySeconds + fadeSeconds;
             toast.Group.alpha = 1f;
-            enabled = true;
         }
 
         private void Update()
@@ -101,7 +95,7 @@ namespace InventorySystem.UI
 
             if (_active.Count == 0)
             {
-                enabled = false;
+                Hide();
             }
         }
 

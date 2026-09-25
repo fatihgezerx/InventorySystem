@@ -12,8 +12,9 @@ namespace InventorySystem.UIEditor
     /// <summary>
     /// <c>GameObject &gt; UI &gt; Inventory System</c>: builds a ready-to-use, fully wired inventory UI under
     /// the selected (or first, or a new) canvas, with a plain dark look to restyle freely. It adds a
-    /// <see cref="UIManager"/> to that canvas if it has none, and lists the new panels in it (and the
-    /// window's own views in the window), so <c>UIManager.Initialize</c> initializes all of them:
+    /// <see cref="UIManager"/> (and an <see cref="InventoryController"/>) to that canvas if it has none, and
+    /// lists the new panels in it (and the window's own views in the window), so <c>UIManager.Initialize</c>
+    /// initializes all of them:
     /// <list type="bullet">
     /// <item><b>Inventory Window</b>: an <see cref="InventoryPanel"/> with its header, weight bar,
     /// <see cref="InventoryListPanel"/> and <see cref="InventoryGridPanel"/>, plus an <see cref="InventoryTooltipPanel"/>.</item>
@@ -365,11 +366,21 @@ namespace InventorySystem.UIEditor
                 Undo.RegisterCreatedObjectUndo(go, "Create Canvas");
             }
 
-            if (!canvas.TryGetComponent<UIManager>(out _))
+            if (!canvas.TryGetComponent<UIManager>(out var ui))
             {
-                Undo.AddComponent<UIManager>(canvas.gameObject);
+                ui = Undo.AddComponent<UIManager>(canvas.gameObject);
                 Debug.Log($"[InventoryUIBuilder] Added a UIManager to '{canvas.name}'. Call its Initialize() from your bootstrap code.", canvas);
             }
+
+            // The inventory's events reach the UI through this controller, on the always-active UIManager object.
+            if (!canvas.TryGetComponent<InventoryController>(out var controller))
+            {
+                controller = Undo.AddComponent<InventoryController>(canvas.gameObject);
+            }
+
+            Undo.RecordObject(ui, "Add Inventory Controller");
+            ui.AddController(controller);
+            EditorUtility.SetDirty(ui);
 
             if (Object.FindFirstObjectByType<UnityEngine.EventSystems.EventSystem>() == null)
             {
