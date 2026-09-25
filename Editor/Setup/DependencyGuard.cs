@@ -31,7 +31,7 @@ namespace InventorySystem.Setup
     internal sealed class DependencyGuard : AssetPostprocessor, IActiveBuildTargetChanged
     {
         internal const string SystemName = "Inventory System";
-        private const string PromptedKey = "InventorySystem.Setup.PromptedForDependencies";
+        private const string DeclinedKey = "InventorySystem.Setup.DependenciesDeclined";
         private const string Branch = "main";
 
         /// <summary>Everything Inventory System uses. Optional ones (with a purpose) only enable extra features.</summary>
@@ -114,10 +114,9 @@ namespace InventorySystem.Setup
                 return false;
             }
 
-            // Asked at most once per editor session, so "Not now" is respected until Unity restarts.
-            if (prompt && !IsInstalling && !Application.isBatchMode && !SessionState.GetBool(PromptedKey, false))
+            // Asked whenever something is missing, unless "Not now" was picked in this editor session.
+            if (prompt && !IsInstalling && !Application.isBatchMode && !SessionState.GetBool(DeclinedKey, false))
             {
-                SessionState.SetBool(PromptedKey, true);
                 Prompt(missing);
             }
 
@@ -193,6 +192,10 @@ namespace InventorySystem.Setup
             {
                 Install(missing);
             }
+            else
+            {
+                SessionState.SetBool(DeclinedKey, true);
+            }
         }
 
         private static void Install(List<Dependency> dependencies)
@@ -216,6 +219,7 @@ namespace InventorySystem.Setup
                 _packageRequest = Client.AddAndRemove(packages.ToArray());
             }
 
+            EditorApplication.update -= WaitForInstall;
             EditorApplication.update += WaitForInstall;
         }
 

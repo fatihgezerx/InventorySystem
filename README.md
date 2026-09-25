@@ -14,8 +14,8 @@ With **UniMVC**, a ready-made inventory UI is added to your project (see [UI](#u
 
 Importing InventorySystem never breaks your project. A small setup script checks for these, leaves
 InventorySystem out of compilation while EventSystem is missing, and offers to install what's missing
-(once per editor session). EventSystem and UniMVC are downloaded into `Assets/Scripts/EventSystem/` and
-`Assets/Scripts/MVC/`, exactly as if you had copied them there. InventorySystem itself contains no UI code
+(it asks again in the next editor session if you pick **Not now**). EventSystem and UniMVC are downloaded
+into `Assets/Scripts/EventSystem/` and `Assets/Scripts/MVC/`, exactly as if you had copied them there. InventorySystem itself contains no UI code
 and no code of any other system: pooling, interaction and UI are all wired from the outside.
 
 ## Installation
