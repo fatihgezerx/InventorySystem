@@ -31,7 +31,8 @@ namespace InventorySystem.Setup
     internal sealed class DependencyGuard : AssetPostprocessor, IActiveBuildTargetChanged
     {
         internal const string SystemName = "Inventory System";
-        private const string DeclinedKey = "InventorySystem.Setup.DependenciesDeclined";
+        private const string DeclinedKey = "InventorySystem.Setup.DeclinedDependencies";
+        private const string SetupAsmdefFile = "InventorySystem.Setup.asmdef";
         private const string Branch = "main";
 
         /// <summary>Everything Inventory System uses. Optional ones (with a purpose) only enable extra features.</summary>
@@ -65,6 +66,13 @@ namespace InventorySystem.Setup
         // symbols right away, during this import, so the compilation that follows already uses them.
         private static void OnPostprocessAllAssets(string[] imported, string[] deleted, string[] moved, string[] movedFrom)
         {
+            // Inventory System itself was deleted or imported again: forget an earlier "Not now", so a
+            // fresh copy asks again even within the same editor session.
+            if (ContainsFile(imported, SetupAsmdefFile) || ContainsFile(deleted, SetupAsmdefFile))
+            {
+                SessionState.EraseString(DeclinedKey);
+            }
+
             if (ContainsAsmdef(imported) || ContainsAsmdef(deleted) || ContainsAsmdef(moved))
             {
                 Refresh(false);
@@ -114,8 +122,9 @@ namespace InventorySystem.Setup
                 return false;
             }
 
-            // Asked whenever something is missing, unless "Not now" was picked in this editor session.
-            if (prompt && !IsInstalling && !Application.isBatchMode && !SessionState.GetBool(DeclinedKey, false))
+            // Asked whenever something is missing, unless "Not now" was already picked for all of it in
+            // this editor session (a dependency that goes missing later is asked about again).
+            if (prompt && !IsInstalling && !Application.isBatchMode && !WasDeclined(missing))
             {
                 Prompt(missing);
             }
@@ -194,8 +203,28 @@ namespace InventorySystem.Setup
             }
             else
             {
-                SessionState.SetBool(DeclinedKey, true);
+                var names = new List<string>();
+                foreach (var dependency in missing)
+                {
+                    names.Add(dependency.Name);
+                }
+
+                SessionState.SetString(DeclinedKey, string.Join("\n", names));
             }
+        }
+
+        private static bool WasDeclined(List<Dependency> missing)
+        {
+            var declined = new HashSet<string>(SessionState.GetString(DeclinedKey, string.Empty).Split('\n'));
+            foreach (var dependency in missing)
+            {
+                if (!declined.Contains(dependency.Name))
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         private static void Install(List<Dependency> dependencies)
@@ -362,6 +391,19 @@ namespace InventorySystem.Setup
             {
                 PlayerSettings.SetScriptingDefineSymbols(target, defines.ToArray());
             }
+        }
+
+        private static bool ContainsFile(string[] paths, string fileName)
+        {
+            foreach (var path in paths)
+            {
+                if (Path.GetFileName(path) == fileName)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static bool ContainsAsmdef(string[] paths)
