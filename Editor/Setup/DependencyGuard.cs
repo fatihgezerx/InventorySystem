@@ -47,6 +47,7 @@ namespace InventorySystem.Setup
             Dependency.Repository("Event System", "EventSystem.Runtime", "HAS_EVENT_SYSTEM", "https://github.com/fatihgezerx/EventSystem", "Assets/Scripts/EventSystem"),
             Dependency.Repository("UniMVC", "UniMVC.Runtime", "HAS_UNIMVC", "https://github.com/fatihgezerx/UniMVC", "Assets/Scripts/MVC", "for the inventory UI"),
             Dependency.Package("Input System", "Unity.InputSystem", "HAS_INPUT_SYSTEM", "com.unity.inputsystem", "com.unity.inputsystem", "for the inventory UI (open / close key, rotate)"),
+            Dependency.Repository("Localization System", "LocalizationSystem.Runtime", "HAS_LOCALIZATION_SYSTEM", "https://github.com/fatihgezerx/LocalizationSystem", "Assets/Scripts/LocalizationSystem", "for translating item names and descriptions"),
         };
 
         private static AddAndRemoveRequest _packageRequest;

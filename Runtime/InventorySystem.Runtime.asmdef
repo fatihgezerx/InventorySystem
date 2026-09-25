@@ -2,7 +2,8 @@
     "name": "InventorySystem.Runtime",
     "rootNamespace": "InventorySystem",
     "references": [
-        "EventSystem.Runtime"
+        "EventSystem.Runtime",
+        "LocalizationSystem.Runtime"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

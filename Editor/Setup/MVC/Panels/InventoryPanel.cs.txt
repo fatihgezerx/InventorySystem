@@ -470,6 +470,42 @@ namespace InventorySystem.UI
         }
 
         #endregion
+
+#if UNITY_EDITOR && HAS_LOCALIZATION_SYSTEM
+        // These labels are filled by code, so LocalizationSystem's "Sync Project" must leave them alone: a
+        // LocalizedText on them would overwrite what the code shows. Keeps them marked with
+        // ExcludeFromLocalization - also on UIs built before LocalizationSystem was installed.
+        private void OnValidate()
+        {
+            UnityEditor.EditorApplication.delayCall += () =>
+            {
+                if (this == null || Application.isPlaying || UnityEditor.EditorUtility.IsPersistent(this))
+                {
+                    return;
+                }
+
+                ExcludeFromLocalization(capacityText);
+            };
+        }
+
+        private static void ExcludeFromLocalization(Component label)
+        {
+            if (label == null)
+            {
+                return;
+            }
+
+            if (!label.TryGetComponent<LocalizationSystem.ExcludeFromLocalization>(out _))
+            {
+                UnityEditor.Undo.AddComponent<LocalizationSystem.ExcludeFromLocalization>(label.gameObject);
+            }
+
+            if (label.TryGetComponent<LocalizationSystem.LocalizedText>(out var localizedText))
+            {
+                UnityEditor.Undo.DestroyObjectImmediate(localizedText);
+            }
+        }
+#endif
     }
 }
 #endif

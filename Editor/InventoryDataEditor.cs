@@ -234,6 +234,7 @@ namespace InventorySystem
                     item.FindPropertyRelative("prefab").objectReferenceValue = null;
                     item.FindPropertyRelative("stackable").boolValue = false;
                     item.FindPropertyRelative("maxStack").intValue = 10;
+                    item.FindPropertyRelative("description").stringValue = string.Empty;
                     item.FindPropertyRelative("weight").floatValue = 1f;
                     item.FindPropertyRelative("shape").intValue = (int)ItemShape.Square1x1;
                     item.FindPropertyRelative("canRotate").boolValue = true;
@@ -245,24 +246,29 @@ namespace InventorySystem
 
     /// <summary>
     /// Draws an <see cref="ItemDefinition"/> as a 50x50 icon on the left and, on the right: Name, Prefab,
-    /// Stackable with its Max Stack slider, plus the one extra line the inventory's mode uses - Weight, or
-    /// Shape (with a small cell preview) and Can Rotate.
+    /// Stackable with its Max Stack slider, a two-line Description, plus the one extra line the inventory's
+    /// mode uses - Weight, or Shape (with a small cell preview) and Can Rotate.
     /// </summary>
     [CustomPropertyDrawer(typeof(ItemDefinition))]
     internal sealed class ItemDefinitionDrawer : PropertyDrawer
     {
         private const float IconSize = 50f;
         private const float IconGap = 8f;
-        private const float LabelWidth = 64f;
+        private const float LabelWidth = 76f;
+        private const int DescriptionLines = 2;
         private const float ToggleWidth = 88f;
         private const float ShapePreviewSize = 18f;
+
+        private static GUIStyle _descriptionStyle;
+
+        private static GUIStyle DescriptionStyle => _descriptionStyle ??= new GUIStyle(EditorStyles.textArea) { wordWrap = true };
 
         private static Color ShapeCellColor =>
             EditorGUIUtility.isProSkin ? new Color(0.35f, 0.6f, 0.95f) : new Color(0.2f, 0.45f, 0.85f);
 
         public override float GetPropertyHeight(SerializedProperty property, GUIContent label)
         {
-            var lines = HasModeLine(property) ? 4 : 3;
+            var lines = 3 + DescriptionLines + (HasModeLine(property) ? 1 : 0);
             var height = EditorGUIUtility.singleLineHeight * lines + EditorGUIUtility.standardVerticalSpacing * (lines - 1);
             return Mathf.Max(IconSize, height);
         }
@@ -286,15 +292,20 @@ namespace InventorySystem
 
             DrawStackLine(LineRect(fields, 2), property);
 
+            var description = property.FindPropertyRelative("description");
+            var descriptionRect = EditorGUI.PrefixLabel(LineRect(fields, 3, DescriptionLines), new GUIContent("Description", description.tooltip));
+            description.stringValue = EditorGUI.TextArea(descriptionRect, description.stringValue, DescriptionStyle);
+
+            const int modeLine = 3 + DescriptionLines;
             switch (GetInventoryType(property))
             {
                 case InventoryType.Weight:
                     var weight = property.FindPropertyRelative("weight");
-                    EditorGUI.PropertyField(LineRect(fields, 3), weight, new GUIContent("Weight", weight.tooltip));
+                    EditorGUI.PropertyField(LineRect(fields, modeLine), weight, new GUIContent("Weight", weight.tooltip));
                     break;
 
                 case InventoryType.Grid:
-                    DrawShapeLine(LineRect(fields, 3), property);
+                    DrawShapeLine(LineRect(fields, modeLine), property);
                     break;
             }
 
@@ -362,10 +373,12 @@ namespace InventorySystem
             return type != null ? (InventoryType)type.intValue : InventoryType.Unlimited;
         }
 
-        private static Rect LineRect(Rect area, int index)
+        // The rect of line <index>, spanning <count> lines.
+        private static Rect LineRect(Rect area, int index, int count = 1)
         {
             var line = EditorGUIUtility.singleLineHeight;
-            return new Rect(area.x, area.y + index * (line + EditorGUIUtility.standardVerticalSpacing), area.width, line);
+            var spacing = EditorGUIUtility.standardVerticalSpacing;
+            return new Rect(area.x, area.y + index * (line + spacing), area.width, count * line + (count - 1) * spacing);
         }
     }
 }

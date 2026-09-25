@@ -11,6 +11,7 @@ With **UniMVC**, a ready-made inventory UI is added to your project (see [UI](#u
 | [EventSystem](https://github.com/fatihgezerx/EventSystem) | Yes | Publishes the inventory's events |
 | [UniMVC](https://github.com/fatihgezerx/UniMVC) | For the UI | The inventory UI is built from UniMVC views |
 | Input System (`com.unity.inputsystem`) | For the UI | Open / close key, rotating items |
+| [LocalizationSystem](https://github.com/fatihgezerx/LocalizationSystem) | No | Translating item names and descriptions (see [Localization](#localization)) |
 
 Importing InventorySystem never breaks your project. A small setup script checks for these, leaves
 InventorySystem out of compilation while EventSystem is missing, and offers to install what's missing
@@ -44,6 +45,7 @@ blocks: **INVENTORY SETTINGS** and **ITEMS**.
 | Name | Name for UI. Compile turns it into its `ItemTypes` member (`Health Potion` → `ItemTypes.HealthPotion`), so it must be unique |
 | Prefab | The world object that gives this item (optional) |
 | Stackable / Max Stack | Stackable items pile up in one slot up to Max Stack, then open a new slot. Other items (e.g. a weapon) take a new slot every time |
+| Description | What the item is, e.g. for a tooltip (optional). Read it as `item.Description` |
 | Weight | **Weight mode only.** Weight of one item |
 | Shape / Can Rotate | **Grid mode only.** `Square 1x1`, `Rectangle 2x1`, `L Shape` (3 cells), `Rectangle 3x1`, `Square 2x2`. With Can Rotate, the item may be turned 90° to fit |
 
@@ -178,6 +180,20 @@ Content panels only listen while visible and redraw only the slots that change.
 For a chest, add a second `InventoryPanel`, turn off **Bind To Main Inventory** and **Toggle With
 Input**, and call `chestPanel.Open(chestInventory)`. `InventoryContentPanel.SlotClicked` (panel, slot index,
 button) is the hook for "use" / "equip".
+
+## Localization
+
+With [LocalizationSystem](https://github.com/fatihgezerx/LocalizationSystem) in the project, every item's
+**Name** and **Description** become translatable: **Sync Project** in LocalizationSystem's Language Data
+window finds them in the InventoryData and adds each one as a row. The UI's tooltip and pickup toasts
+then show item names in the current language. In your own code, show
+`LocalizationRuntime.Get(item.DisplayName)` / `LocalizationRuntime.Get(item.Description)`. The Name is
+still what Compile turns into the `ItemTypes` member, so translating it never changes your code.
+
+It is optional: without LocalizationSystem, InventorySystem compiles and shows the Names as written.
+Install it later and they become translatable on their own, no change needed. The UI labels filled by
+code (the capacity counter, the tooltip's name and details) keep themselves marked with
+`ExcludeFromLocalization`, so Sync Project never overwrites them.
 
 ## Events
 

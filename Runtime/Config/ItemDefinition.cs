@@ -4,7 +4,7 @@ using UnityEngine;
 namespace InventorySystem
 {
     /// <summary>
-    /// One item the inventory knows about: its name, icon, world prefab and stacking rules, plus the
+    /// One item the inventory knows about: its name, description, icon, world prefab and stacking rules, plus the
     /// fields only one inventory mode uses (<see cref="Weight"/> for <see cref="InventoryType.Weight"/>,
     /// <see cref="Shape"/>/<see cref="CanRotate"/> for <see cref="InventoryType.Grid"/>). Edited inside an
     /// <see cref="InventoryData"/>; Compile turns its name into an <see cref="ItemTypes"/> member.
@@ -19,6 +19,12 @@ namespace InventorySystem
         // deleting items never shifts an ItemTypes already saved in a scene, prefab or asset.
         [HideInInspector] [SerializeField] internal int id;
 
+        // Name and Description are offered for translation by LocalizationSystem's "Sync Project". The
+        // symbol is set only while LocalizationSystem is in the project, so the attributes appear as soon
+        // as it is installed and nothing breaks without it.
+#if HAS_LOCALIZATION_SYSTEM
+        [LocalizationSystem.Localize]
+#endif
         [Tooltip("The item's name, e.g. for UI. Compile turns it into its ItemTypes member (\"Health Potion\" -> ItemTypes.HealthPotion), so it must be unique.")]
         [SerializeField] private string displayName = string.Empty;
 
@@ -33,6 +39,12 @@ namespace InventorySystem
 
         [Tooltip("How many fit in one slot. Used only when Stackable is on.")]
         [Range(2, MaxStackLimit)] [SerializeField] private int maxStack = 10;
+
+#if HAS_LOCALIZATION_SYSTEM
+        [LocalizationSystem.Localize]
+#endif
+        [Tooltip("What the item is, e.g. for a tooltip. Optional.")]
+        [SerializeField] private string description = string.Empty;
 
         [Tooltip("Weight of one item. Used only by Weight inventories.")]
         [Min(0f)] [SerializeField] private float weight = 1f;
@@ -51,6 +63,9 @@ namespace InventorySystem
 
         /// <summary>The item's name as entered in <see cref="InventoryData"/>, e.g. "Health Potion".</summary>
         public string DisplayName => displayName;
+
+        /// <summary>The item's description as entered in <see cref="InventoryData"/>. May be empty.</summary>
+        public string Description => description;
 
         public Sprite Icon => icon;
 

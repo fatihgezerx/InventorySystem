@@ -7,8 +7,8 @@ using UnityEngine.UI;
 namespace InventorySystem.UI
 {
     /// <summary>
-    /// The item tooltip content panels show on hover: the item's name, and its stack (and weight, in Weight
-    /// inventories). Content panels find it through the <see cref="UIManager"/>, so without one hovering
+    /// The item tooltip content panels show on hover: the item's name (translated with LocalizationSystem),
+    /// and its stack (and weight, in Weight inventories). Content panels find it through the <see cref="UIManager"/>, so without one hovering
     /// simply shows nothing. Give it a CanvasGroup that doesn't block raycasts, so it never steals the hover.
     /// </summary>
     public sealed class InventoryTooltipPanel : PanelViewBase
@@ -42,7 +42,7 @@ namespace InventorySystem.UI
             }
 
             var item = slot.Item;
-            nameText.SetText(item.DisplayName);
+            nameText.SetText(Localized(item.DisplayName));
 
             if (detailText != null)
             {
@@ -98,6 +98,50 @@ namespace InventorySystem.UI
             _rect.pivot = new Vector2(0f, 1f);
             _rect.localPosition = new Vector3(x, y, 0f);
         }
+
+        private static string Localized(string text) =>
+#if HAS_LOCALIZATION_SYSTEM
+            LocalizationSystem.LocalizationRuntime.Get(text);
+#else
+            text;
+#endif
+
+#if UNITY_EDITOR && HAS_LOCALIZATION_SYSTEM
+        // These labels are filled by code, so LocalizationSystem's "Sync Project" must leave them alone: a
+        // LocalizedText on them would overwrite what the code shows. Keeps them marked with
+        // ExcludeFromLocalization - also on UIs built before LocalizationSystem was installed.
+        private void OnValidate()
+        {
+            UnityEditor.EditorApplication.delayCall += () =>
+            {
+                if (this == null || Application.isPlaying || UnityEditor.EditorUtility.IsPersistent(this))
+                {
+                    return;
+                }
+
+                ExcludeFromLocalization(nameText);
+                ExcludeFromLocalization(detailText);
+            };
+        }
+
+        private static void ExcludeFromLocalization(Component label)
+        {
+            if (label == null)
+            {
+                return;
+            }
+
+            if (!label.TryGetComponent<LocalizationSystem.ExcludeFromLocalization>(out _))
+            {
+                UnityEditor.Undo.AddComponent<LocalizationSystem.ExcludeFromLocalization>(label.gameObject);
+            }
+
+            if (label.TryGetComponent<LocalizationSystem.LocalizedText>(out var localizedText))
+            {
+                UnityEditor.Undo.DestroyObjectImmediate(localizedText);
+            }
+        }
+#endif
     }
 }
 #endif

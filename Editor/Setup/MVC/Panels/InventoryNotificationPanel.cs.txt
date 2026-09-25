@@ -70,7 +70,7 @@ namespace InventorySystem.UI
             }
 
             toast.transform.SetAsLastSibling();
-            toast.Set(item.Icon, string.Format(full ? fullFormat : addedFormat, toast.Amount, item.DisplayName),
+            toast.Set(item.Icon, string.Format(full ? fullFormat : addedFormat, toast.Amount, Localized(item.DisplayName)),
                 full ? fullColor : addedColor);
             toast.TimeLeft = displaySeconds + fadeSeconds;
             toast.Group.alpha = 1f;
@@ -133,6 +133,13 @@ namespace InventorySystem.UI
             _active.Remove(toast);
             _pool.Push(toast);
         }
+
+        private static string Localized(string text) =>
+#if HAS_LOCALIZATION_SYSTEM
+            LocalizationSystem.LocalizationRuntime.Get(text);
+#else
+            text;
+#endif
     }
 }
 #endif
