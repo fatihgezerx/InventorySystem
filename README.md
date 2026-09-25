@@ -14,9 +14,9 @@ With **UniMVC**, a ready-made inventory UI is added to your project (see [UI](#u
 
 Importing InventorySystem never breaks your project. A small setup script checks for these, leaves
 InventorySystem out of compilation while EventSystem is missing, and offers to install what's missing
-(**Tools > Inventory System > Install MVC Scripts** offers UniMVC again). EventSystem and UniMVC are downloaded
-into `Assets/Scripts/EventSystem/` and `Assets/Scripts/MVC/`, exactly as if you had copied them there. InventorySystem itself contains no
-UI code and no code of any other system: pooling, interaction and UI are all wired from the outside.
+(once per editor session). EventSystem and UniMVC are downloaded into `Assets/Scripts/EventSystem/` and
+`Assets/Scripts/MVC/`, exactly as if you had copied them there. InventorySystem itself contains no UI code
+and no code of any other system: pooling, interaction and UI are all wired from the outside.
 
 ## Installation
 
@@ -131,10 +131,13 @@ as C# events (`SlotChanged`, `SlotCountChanged`, `ItemAdded`, `ItemRemoved`, `Ad
 
 ## UI
 
-The inventory UI is built on [UniMVC](https://github.com/fatihgezerx/UniMVC). When UniMVC and the Input
-System are installed, the setup script copies these views into your MVC folder, creating the subfolders
-as needed. They become your own project code, so edit them freely. Existing files are never
-overwritten, and **Tools > Inventory System > Install MVC Scripts** adds any missing ones again.
+The inventory UI is built on [UniMVC](https://github.com/fatihgezerx/UniMVC). The setup script copies
+these views into your MVC folder on its own, creating the subfolders as needed: right away if UniMVC is
+already in the project when you import InventorySystem, or as soon as UniMVC is added later (by you or by
+the setup dialog). They become your own project code, so edit them freely. Existing files are never
+overwritten, and a view you delete isn't brought back unless InventorySystem or UniMVC is imported again.
+Until EventSystem and the Input System are installed too, the views compile to nothing, so they never
+cause errors.
 
 | File | Base | What it does |
 |---|---|---|
