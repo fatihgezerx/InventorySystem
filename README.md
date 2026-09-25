@@ -150,8 +150,9 @@ overwritten, and **Tools > Inventory System > Install MVC Scripts** adds any mis
 | `Editor/InventoryUIBuilder` | - | `GameObject > UI > Inventory System` menu |
 
 **Setup:** right-click the Canvas, then **UI > Inventory System > Inventory Window** (and
-**Inventory Notifications**). This builds everything fully wired and adds a `UIManager` to the canvas if it
-has none. Call `UIManager.Initialize()` from your bootstrap code, after `InventoryManager.Initialize`.
+**Inventory Notifications**). This builds everything fully wired, adds a `UIManager` to the canvas if it
+has none, and lists the new panels in it (and the window's own views in the window). Call
+`UIManager.Initialize()` from your bootstrap code, after `InventoryManager.Initialize`.
 
 **Controls**
 

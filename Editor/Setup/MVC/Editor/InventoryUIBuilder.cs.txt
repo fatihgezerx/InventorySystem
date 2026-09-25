@@ -11,8 +11,9 @@ namespace InventorySystem.UIEditor
 {
     /// <summary>
     /// <c>GameObject &gt; UI &gt; Inventory System</c>: builds a ready-to-use, fully wired inventory UI under
-    /// the selected (or first, or a new) canvas, with a plain dark look to restyle freely, and adds a
-    /// <see cref="UIManager"/> to that canvas if it has none:
+    /// the selected (or first, or a new) canvas, with a plain dark look to restyle freely. It adds a
+    /// <see cref="UIManager"/> to that canvas if it has none, and lists the new panels in it (and the
+    /// window's own views in the window), so <c>UIManager.Initialize</c> initializes all of them:
     /// <list type="bullet">
     /// <item><b>Inventory Window</b>: an <see cref="InventoryPanel"/> with its header, weight bar,
     /// <see cref="InventoryListPanel"/> and <see cref="InventoryGridPanel"/>, plus an <see cref="InventoryTooltipPanel"/>.</item>
@@ -41,6 +42,7 @@ namespace InventorySystem.UIEditor
             var canvas = PrepareCanvas(command.context as GameObject);
             var window = BuildWindow(canvas.transform);
             var tooltip = BuildTooltip(canvas.transform);
+            List(canvas, window.GetComponent<InventoryPanel>(), tooltip.GetComponent<InventoryTooltipPanel>());
 
             Undo.RegisterCreatedObjectUndo(window, "Create Inventory Window");
             Undo.RegisterCreatedObjectUndo(tooltip, "Create Inventory Window");
@@ -52,6 +54,7 @@ namespace InventorySystem.UIEditor
         {
             var canvas = PrepareCanvas(command.context as GameObject);
             var notifications = BuildNotifications(canvas.transform);
+            List(canvas, notifications.GetComponent<InventoryNotificationPanel>());
 
             Undo.RegisterCreatedObjectUndo(notifications, "Create Inventory Notifications");
             Selection.activeGameObject = notifications;
@@ -88,7 +91,7 @@ namespace InventorySystem.UIEditor
             var close = NewRect("Close Button", header);
             var closeImage = AddImage(close, RoundedSprite, new Color(1f, 1f, 1f, 0.12f), true);
             close.gameObject.AddComponent<Button>().targetGraphic = closeImage;
-            close.gameObject.AddComponent<InventoryCloseButton>();
+            var closeButton = close.gameObject.AddComponent<InventoryCloseButton>();
             Layout(close, preferredWidth: 30f, preferredHeight: 30f);
             Stretch((RectTransform)AddText(NewRect("Label", close), "X", 18f, TextAlignmentOptions.Center, FontStyles.Bold, Color.white).transform);
 
@@ -113,6 +116,11 @@ namespace InventorySystem.UIEditor
             so.FindProperty("weightBar").objectReferenceValue = bar.gameObject;
             so.FindProperty("weightFill").objectReferenceValue = fill;
             so.ApplyModifiedPropertiesWithoutUndo();
+
+            // The window initializes its own views: both content panels and the close button.
+            window.ChildViews.Add(list);
+            window.ChildViews.Add(grid);
+            window.ChildViews.Add(closeButton);
 
             return panel.gameObject;
         }
@@ -315,6 +323,19 @@ namespace InventorySystem.UIEditor
         #endregion
 
         #region Helpers
+
+        // Adds the new top-level views to the canvas's UIManager lists.
+        private static void List(Canvas canvas, params ViewBase[] views)
+        {
+            var ui = canvas.GetComponent<UIManager>();
+            Undo.RecordObject(ui, "List Inventory Views");
+            foreach (var view in views)
+            {
+                ui.Views.Add(view);
+            }
+
+            EditorUtility.SetDirty(ui);
+        }
 
         // The selected (or first, or a new) canvas, with a UIManager and an EventSystem in the scene.
         private static Canvas PrepareCanvas(GameObject context)
