@@ -8,12 +8,18 @@ using UnityEngine.UI;
 namespace InventorySystem.UI
 {
     /// <summary>
-    /// Shows a <see cref="GridInventory"/>: a background cell per grid cell, and one
-    /// <see cref="InventorySlotButton"/> per placed item, sized to its footprint with its icon turned by its
-    /// rotation. While an item is dragged, the cells it would land on are tinted green (fits) or red
-    /// (doesn't), and the rotate input (R by default) turns it. Drop it on free cells to move it, or on a
-    /// stack of the same item to merge.
+    /// Shows a <see cref="GridInventory"/> like a Resident Evil 4 attaché case: a background cell per grid
+    /// cell, and one <see cref="InventorySlotButton"/> per placed item, sized to its rectangle with its icon
+    /// turned by its rotation. While an item is dragged, the rectangle it would land on is tinted green
+    /// (fits) or red (doesn't), and the rotate input (R by default) turns it. Drop it on free cells to move
+    /// it, or on a stack of the same item to merge. <see cref="Organize"/> packs everything tightly.
     /// </summary>
+    /// <remarks>
+    /// The background cells can be made in the editor (the Inventory UI builder does, from the
+    /// InventoryData's Columns x Rows) so the grid can be seen and styled before play: every Image under
+    /// Cell Layer is used as a cell, and only missing ones are made from Cell Template - e.g. after
+    /// <see cref="GridInventory.Resize"/>.
+    /// </remarks>
     public sealed class InventoryGridPanel : InventoryContentPanel
     {
         [Tooltip("Holds the background cells. Anchored and sized by the panel.")]
@@ -22,9 +28,10 @@ namespace InventorySystem.UI
         [Tooltip("Holds the item buttons. Anchored and sized by the panel.")]
         [SerializeField] private RectTransform itemLayer;
 
-        [Tooltip("Holds the drop preview. Anchored and sized by the panel.")]
+        [Tooltip("Holds the drop preview: one tinted rectangle. Anchored and sized by the panel.")]
         [SerializeField] private RectTransform previewLayer;
 
+        [Tooltip("Copied for grid cells that aren't under Cell Layer yet, and for the drop preview.")]
         [SerializeField] private Image cellTemplate;
         [SerializeField] private InventorySlotButton itemTemplate;
 
@@ -45,7 +52,9 @@ namespace InventorySystem.UI
 
         private readonly List<Image> _cells = new();
         private readonly List<InventorySlotButton> _items = new();
-        private readonly List<Image> _previewCells = new();
+        private bool _cellsCollected;
+        private Vector2Int _laidOut = new(-1, -1);
+        private Image _preview;
         private InputAction _rotate;
         private bool _ownsRotate;
         private Vector2 _lastPointer;
@@ -88,38 +97,7 @@ namespace InventorySystem.UI
         protected override void Rebuild()
         {
             var grid = Grid;
-            var columns = grid?.Columns ?? 0;
-            var rows = grid?.Rows ?? 0;
-            var size = columns > 0 ? Footprint(new Vector2Int(columns, rows)) : Vector2.zero;
-
-            PrepareLayer(cellLayer, size);
-            PrepareLayer(itemLayer, size);
-            PrepareLayer(previewLayer, size);
-
-            if (layoutElement != null)
-            {
-                layoutElement.preferredWidth = size.x;
-                layoutElement.preferredHeight = size.y;
-            }
-
-            var cellCount = columns * rows;
-            while (_cells.Count < cellCount)
-            {
-                var cell = Instantiate(cellTemplate, cellLayer);
-                cell.raycastTarget = false;
-                PrepareCellRect(cell.rectTransform);
-                _cells.Add(cell);
-            }
-
-            for (var i = 0; i < _cells.Count; i++)
-            {
-                var show = i < cellCount;
-                _cells[i].gameObject.SetActive(show);
-                if (show)
-                {
-                    _cells[i].rectTransform.anchoredPosition = CellPosition(new Vector2Int(i % columns, i / columns));
-                }
-            }
+            LayoutGrid(grid?.Columns ?? 0, grid?.Rows ?? 0);
 
             var slotCount = grid?.SlotCount ?? 0;
             for (var i = 0; i < slotCount; i++)
@@ -133,6 +111,93 @@ namespace InventorySystem.UI
             }
 
             HidePreview();
+        }
+
+        /// <summary>
+        /// Sizes the panel to a <paramref name="columns"/> x <paramref name="rows"/> grid and lays out one
+        /// background cell per grid cell: the cells already under Cell Layer first, then new ones from Cell
+        /// Template. Runs on every redraw; the Inventory UI builder also runs it in edit mode, so the grid is
+        /// there to see and style before play. Cells beyond the grid are hidden (removed, in edit mode).
+        /// </summary>
+        public void LayoutGrid(int columns, int rows)
+        {
+            columns = Mathf.Max(0, columns);
+            rows = Mathf.Max(0, rows);
+
+            // Redrawn on every open: at runtime nothing needs touching while the grid keeps its size.
+            if (Application.isPlaying && _laidOut == new Vector2Int(columns, rows))
+            {
+                return;
+            }
+
+            _laidOut = new Vector2Int(columns, rows);
+            var size = columns > 0 && rows > 0 ? Footprint(new Vector2Int(columns, rows)) : Vector2.zero;
+
+            PrepareLayer(cellLayer, size);
+            PrepareLayer(itemLayer, size);
+            PrepareLayer(previewLayer, size);
+
+            if (layoutElement != null)
+            {
+                layoutElement.preferredWidth = size.x;
+                layoutElement.preferredHeight = size.y;
+            }
+
+            CollectCells();
+
+            var cellCount = columns * rows;
+            while (_cells.Count < cellCount)
+            {
+                var cell = Instantiate(cellTemplate, cellLayer);
+                cell.raycastTarget = false;
+                PrepareCellRect(cell.rectTransform);
+                _cells.Add(cell);
+            }
+
+#if UNITY_EDITOR
+            // In edit mode the hierarchy is what is being built: drop the cells the grid doesn't need.
+            if (!Application.isPlaying)
+            {
+                for (var i = _cells.Count - 1; i >= cellCount; i--)
+                {
+                    UnityEditor.Undo.DestroyObjectImmediate(_cells[i].gameObject);
+                    _cells.RemoveAt(i);
+                }
+            }
+#endif
+
+            for (var i = 0; i < _cells.Count; i++)
+            {
+                var show = i < cellCount;
+                if (_cells[i].gameObject.activeSelf != show)
+                {
+                    _cells[i].gameObject.SetActive(show);
+                }
+
+                if (!show)
+                {
+                    continue;
+                }
+
+                var cell = new Vector2Int(i % columns, i / columns);
+                _cells[i].rectTransform.anchoredPosition = CellPosition(cell);
+#if UNITY_EDITOR
+                if (!Application.isPlaying)
+                {
+                    _cells[i].name = $"Cell ({cell.x}, {cell.y})";
+                }
+#endif
+            }
+        }
+
+        /// <summary>
+        /// Packs the shown grid's items tightly (<see cref="GridInventory.Organize"/>) - e.g. for an Organize
+        /// button. Returns false if there is no grid, or the packing couldn't fit every item (nothing moves then).
+        /// </summary>
+        public bool Organize()
+        {
+            CancelDrag();
+            return Grid != null && Grid.Organize();
         }
 
         protected override void RefreshSlot(int index)
@@ -161,7 +226,7 @@ namespace InventorySystem.UI
 
             item.RectTransform.anchoredPosition = CellPosition(slot.Position);
             item.RectTransform.sizeDelta = Footprint(slot.Size);
-            item.SetIconRotation(slot.Rotation, IconSize(slot.Item.Shape));
+            item.SetIconRotation(slot.Rotation, IconSize(slot.Item));
             item.Show(slot);
             item.gameObject.SetActive(true);
         }
@@ -233,25 +298,22 @@ namespace InventorySystem.UI
 
         private void OnRotatePerformed(InputAction.CallbackContext context)
         {
-            if (InventoryDrag.SourcePanel != this || !TryGetSlot(InventoryDrag.SlotIndex, out var slot))
+            if (InventoryDrag.SourcePanel != this || !TryGetSlot(InventoryDrag.SlotIndex, out var slot) || !slot.Item.IsRotatable)
             {
                 return;
             }
 
-            var shape = slot.Item.Shape;
-            if (!slot.Item.CanRotate || ItemShapes.GetRotationCount(shape) == 1)
-            {
-                return;
-            }
-
-            // The grabbed cell turns with the item: (x, y) in a w x h box -> (h - 1 - y, x).
-            var oldSize = ItemShapes.GetSize(shape, InventoryDrag.Rotation);
+            // The grabbed cell turns with the item, so it stays under the pointer: in a w x h box, a quarter
+            // turn clockwise takes (x, y) to (h - 1 - y, x), and turning back takes it to (y, w - 1 - x).
+            var item = slot.Item;
+            var oldSize = item.GetSize(InventoryDrag.Rotation);
             var grab = InventoryDrag.GrabOffset;
-            InventoryDrag.Rotation = ItemShapes.NormalizeRotation(shape, InventoryDrag.Rotation + 1);
-            var newSize = ItemShapes.GetSize(shape, InventoryDrag.Rotation);
-            InventoryDrag.GrabOffset = new Vector2Int(
-                Mathf.Clamp(oldSize.y - 1 - grab.y, 0, newSize.x - 1),
-                Mathf.Clamp(grab.x, 0, newSize.y - 1));
+            InventoryDrag.Rotation = item.NormalizeRotation(InventoryDrag.Rotation + 1);
+            var newSize = item.GetSize(InventoryDrag.Rotation);
+            var turned = InventoryDrag.Rotation == 1
+                ? new Vector2Int(oldSize.y - 1 - grab.y, grab.x)
+                : new Vector2Int(grab.y, oldSize.x - 1 - grab.x);
+            InventoryDrag.GrabOffset = new Vector2Int(Mathf.Clamp(turned.x, 0, newSize.x - 1), Mathf.Clamp(turned.y, 0, newSize.y - 1));
 
             ShowGhost(slot);
             DragGhost.For(RootCanvas).MoveTo(_lastPointer);
@@ -260,7 +322,7 @@ namespace InventorySystem.UI
 
         private void ShowGhost(InventorySlot slot)
         {
-            var size = ItemShapes.GetSize(slot.Item.Shape, InventoryDrag.Rotation);
+            var size = slot.Item.GetSize(InventoryDrag.Rotation);
             var footprint = Footprint(size);
             var grab = InventoryDrag.GrabOffset;
             var pivot = new Vector2(
@@ -268,17 +330,16 @@ namespace InventorySystem.UI
                 1f - (grab.y + 0.5f) * Pitch / footprint.y);
 
             DragGhost.For(RootCanvas).Show(slot.Item.Icon, InventoryDrag.Amount, footprint, pivot,
-                InventoryDrag.Rotation, IconSize(slot.Item.Shape));
+                InventoryDrag.Rotation, IconSize(slot.Item));
         }
 
         private void UpdatePreview()
         {
-            HidePreview();
-
             var grid = Grid;
             if (grid == null || !TryGetSlot(InventoryDrag.SlotIndex, out var slot)
                 || !RectTransformUtility.RectangleContainsScreenPoint(itemLayer, _lastPointer, EventCamera))
             {
+                HidePreview();
                 return;
             }
 
@@ -287,49 +348,49 @@ namespace InventorySystem.UI
             if (under >= 0 && under != InventoryDrag.SlotIndex && grid.Slots[under].Item == slot.Item)
             {
                 var target = grid.Slots[under];
-                PreviewShape(target.Item.Shape, target.Position, target.Rotation, target.SpaceLeft > 0 ? validColor : invalidColor);
+                ShowPreview(target.Position, target.Size, target.SpaceLeft > 0 ? validColor : invalidColor);
                 return;
             }
 
             var position = cell - InventoryDrag.GrabOffset;
             var fits = grid.CanMoveTo(InventoryDrag.SlotIndex, position, InventoryDrag.Rotation);
-            PreviewShape(slot.Item.Shape, position, InventoryDrag.Rotation, fits ? validColor : invalidColor);
+            ShowPreview(position, slot.Item.GetSize(InventoryDrag.Rotation), fits ? validColor : invalidColor);
         }
 
-        private void PreviewShape(ItemShape shape, Vector2Int position, int rotation, Color color)
+        // One tinted rectangle over the cells the item would cover, cut to the part inside the grid.
+        private void ShowPreview(Vector2Int position, Vector2Int size, Color color)
         {
             var grid = Grid;
-            var used = 0;
-            var offsets = ItemShapes.GetCells(shape, rotation);
-            for (var i = 0; i < offsets.Count; i++)
+            var min = Vector2Int.Max(position, Vector2Int.zero);
+            var max = Vector2Int.Min(position + size, new Vector2Int(grid.Columns, grid.Rows));
+            if (max.x <= min.x || max.y <= min.y)
             {
-                var cell = position + offsets[i];
-                if (!grid.IsInside(cell))
-                {
-                    continue;
-                }
+                HidePreview();
+                return;
+            }
 
-                if (used == _previewCells.Count)
-                {
-                    var preview = Instantiate(cellTemplate, previewLayer);
-                    preview.name = "Preview Cell";
-                    preview.raycastTarget = false;
-                    PrepareCellRect(preview.rectTransform);
-                    _previewCells.Add(preview);
-                }
+            if (_preview == null)
+            {
+                _preview = Instantiate(cellTemplate, previewLayer);
+                _preview.name = "Drop Preview";
+                _preview.raycastTarget = false;
+                PrepareCellRect(_preview.rectTransform);
+            }
 
-                var image = _previewCells[used++];
-                image.color = color;
-                image.rectTransform.anchoredPosition = CellPosition(cell);
-                image.gameObject.SetActive(true);
+            _preview.color = color;
+            _preview.rectTransform.anchoredPosition = CellPosition(min);
+            _preview.rectTransform.sizeDelta = Footprint(max - min);
+            if (!_preview.gameObject.activeSelf)
+            {
+                _preview.gameObject.SetActive(true);
             }
         }
 
         private void HidePreview()
         {
-            foreach (var cell in _previewCells)
+            if (_preview != null && _preview.gameObject.activeSelf)
             {
-                cell.gameObject.SetActive(false);
+                _preview.gameObject.SetActive(false);
             }
         }
 
@@ -341,9 +402,9 @@ namespace InventorySystem.UI
 
         private Vector2 Footprint(Vector2Int cells) => new(cells.x * Pitch - cellSpacing, cells.y * Pitch - cellSpacing);
 
-        // The icon's unrotated size: turning the icon (not the footprint) keeps the sprite's proportions.
-        private Vector2 IconSize(ItemShape shape) =>
-            Vector2.Max(Footprint(ItemShapes.GetSize(shape, 0)) - Vector2.one * (iconPadding * 2f), Vector2.one);
+        // The icon's unturned size: turning the icon (not the footprint) keeps the sprite's proportions.
+        private Vector2 IconSize(ItemDefinition item) =>
+            Vector2.Max(Footprint(item.Size) - Vector2.one * (iconPadding * 2f), Vector2.one);
 
         private Vector2Int PointerCell(Vector2 screenPosition)
         {
@@ -356,6 +417,27 @@ namespace InventorySystem.UI
             layer.anchorMin = layer.anchorMax = layer.pivot = new Vector2(0f, 1f);
             layer.anchoredPosition = Vector2.zero;
             layer.sizeDelta = size;
+        }
+
+        // Takes over the cells already under Cell Layer (e.g. made by the builder in edit mode), once. In
+        // edit mode the hierarchy may have been changed by hand since, so it is read again every time.
+        private void CollectCells()
+        {
+            if (_cellsCollected && Application.isPlaying)
+            {
+                return;
+            }
+
+            _cellsCollected = true;
+            _cells.Clear();
+            for (var i = 0; i < cellLayer.childCount; i++)
+            {
+                if (cellLayer.GetChild(i).TryGetComponent<Image>(out var cell))
+                {
+                    cell.raycastTarget = false;
+                    _cells.Add(cell);
+                }
+            }
         }
 
         private void PrepareCellRect(RectTransform rect)

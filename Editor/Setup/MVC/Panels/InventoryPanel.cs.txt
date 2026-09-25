@@ -35,6 +35,9 @@ namespace InventorySystem.UI
         [Tooltip("Stretched horizontally to total / max weight.")]
         [SerializeField] private RectTransform weightFill;
 
+        [Tooltip("Grid mode only: shown. E.g. the Organize button.")]
+        [SerializeField] private GameObject organizeButton;
+
         [Header("Behaviour")]
         [SerializeField] private bool bindToMainInventory = true;
         [SerializeField] private bool startOpen;
@@ -308,6 +311,12 @@ namespace InventorySystem.UI
             if (weightBar != null && weightBar.activeSelf != showWeight)
             {
                 weightBar.SetActive(showWeight);
+            }
+
+            var showOrganize = inventory is GridInventory;
+            if (organizeButton != null && organizeButton.activeSelf != showOrganize)
+            {
+                organizeButton.SetActive(showOrganize);
             }
 
             if (showWeight && weightFill != null)

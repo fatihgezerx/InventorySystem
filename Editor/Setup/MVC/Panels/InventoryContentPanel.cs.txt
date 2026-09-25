@@ -118,6 +118,7 @@ namespace InventorySystem.UI
 
             Inventory.SlotChanged += HandleSlotChanged;
             Inventory.SlotCountChanged += OnSlotCountChanged;
+            Inventory.LayoutChanged += HandleLayoutChanged;
             _subscribed = Inventory;
         }
 
@@ -130,6 +131,7 @@ namespace InventorySystem.UI
 
             _subscribed.SlotChanged -= HandleSlotChanged;
             _subscribed.SlotCountChanged -= OnSlotCountChanged;
+            _subscribed.LayoutChanged -= HandleLayoutChanged;
             _subscribed = null;
         }
 
@@ -142,6 +144,13 @@ namespace InventorySystem.UI
             {
                 CancelDrag();
             }
+        }
+
+        // The whole layout changed (e.g. a grid resized): a drag in progress no longer matches it.
+        private void HandleLayoutChanged()
+        {
+            CancelDrag();
+            Rebuild();
         }
 
         #endregion

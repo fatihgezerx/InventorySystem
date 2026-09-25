@@ -125,8 +125,8 @@ namespace InventorySystem
                 "A fixed number of slots. Stackable items fill their stacks up to Max Stack before taking a new slot; " +
                 "everything else takes a new slot every time.",
             InventoryType.Grid =>
-                "A Columns x Rows grid. Every item covers the cells of its Shape and, with Can Rotate, may be turned " +
-                "90 degrees to fit. Every item gets Shape and Can Rotate fields.",
+                "A Columns x Rows grid, like an attaché case. Every item covers a Width x Height rectangle of cells " +
+                "and, with Can Rotate, may be turned 90 degrees to fit. Every item gets Size and Can Rotate fields.",
             _ => "No limit: slots are added as long as items keep coming."
         };
 
@@ -236,7 +236,7 @@ namespace InventorySystem
                     item.FindPropertyRelative("maxStack").intValue = 10;
                     item.FindPropertyRelative("description").stringValue = string.Empty;
                     item.FindPropertyRelative("weight").floatValue = 1f;
-                    item.FindPropertyRelative("shape").intValue = (int)ItemShape.Square1x1;
+                    item.FindPropertyRelative("size").vector2IntValue = Vector2Int.one;
                     item.FindPropertyRelative("canRotate").boolValue = true;
                     list.index = items.arraySize - 1;
                 }
@@ -247,7 +247,7 @@ namespace InventorySystem
     /// <summary>
     /// Draws an <see cref="ItemDefinition"/> as a 50x50 icon on the left and, on the right: Name, Prefab,
     /// Stackable with its Max Stack slider, a two-line Description, plus the one extra line the inventory's
-    /// mode uses - Weight, or Shape (with a small cell preview) and Can Rotate.
+    /// mode uses - Weight, or Size and Can Rotate (with a cell preview under the icon, red if it can't fit the grid).
     /// </summary>
     [CustomPropertyDrawer(typeof(ItemDefinition))]
     internal sealed class ItemDefinitionDrawer : PropertyDrawer
@@ -257,20 +257,39 @@ namespace InventorySystem
         private const float LabelWidth = 76f;
         private const int DescriptionLines = 2;
         private const float ToggleWidth = 88f;
-        private const float ShapePreviewSize = 18f;
+        private const float PreviewGap = 2f;
+        private const float PreviewLabelHeight = 14f;
+        private const float PreviewPadding = 4f;
+        private const float MaxPreviewCell = 12f;
 
         private static GUIStyle _descriptionStyle;
 
         private static GUIStyle DescriptionStyle => _descriptionStyle ??= new GUIStyle(EditorStyles.textArea) { wordWrap = true };
 
+        private static GUIStyle _centeredLabel;
+        private static GUIStyle _previewLabelStyle;
+
+        private static GUIStyle PreviewLabelStyle => _previewLabelStyle ??= new GUIStyle(EditorStyles.miniLabel)
+        {
+            alignment = TextAnchor.LowerCenter,
+            padding = new RectOffset(0, 0, 0, 1)
+        };
+
+        private static GUIStyle CenteredLabel => _centeredLabel ??= new GUIStyle(EditorStyles.label) { alignment = TextAnchor.MiddleCenter };
+
         private static Color ShapeCellColor =>
             EditorGUIUtility.isProSkin ? new Color(0.35f, 0.6f, 0.95f) : new Color(0.2f, 0.45f, 0.85f);
+
+        private static readonly Color TooBigColor = new(0.9f, 0.3f, 0.3f);
 
         public override float GetPropertyHeight(SerializedProperty property, GUIContent label)
         {
             var lines = 3 + DescriptionLines + (HasModeLine(property) ? 1 : 0);
             var height = EditorGUIUtility.singleLineHeight * lines + EditorGUIUtility.standardVerticalSpacing * (lines - 1);
-            return Mathf.Max(IconSize, height);
+
+            // Grid items show their size preview under the icon, as big as the icon.
+            var left = GetInventoryType(property) == InventoryType.Grid ? IconSize * 2f + PreviewGap + PreviewLabelHeight : IconSize;
+            return Mathf.Max(left, height);
         }
 
         public override void OnGUI(Rect position, SerializedProperty property, GUIContent label)
@@ -305,7 +324,14 @@ namespace InventorySystem
                     break;
 
                 case InventoryType.Grid:
-                    DrawShapeLine(LineRect(fields, modeLine), property);
+                    var sizeLine = LineRect(fields, modeLine);
+                    DrawShapeLine(sizeLine, property);
+
+                    // As big as the icon, its bottom level with the Size line, titled "Preview".
+                    var previewRect = new Rect(position.x, sizeLine.yMax - IconSize, IconSize, IconSize);
+                    EditorGUI.LabelField(new Rect(position.x, previewRect.y - PreviewLabelHeight, IconSize, PreviewLabelHeight),
+                        "Preview", PreviewLabelStyle);
+                    DrawSizePreview(previewRect, property);
                     break;
             }
 
@@ -329,35 +355,80 @@ namespace InventorySystem
 
         private static void DrawShapeLine(Rect rect, SerializedProperty property)
         {
-            var shape = property.FindPropertyRelative("shape");
+            var size = property.FindPropertyRelative("size");
             var canRotate = property.FindPropertyRelative("canRotate");
 
             var toggleRect = new Rect(rect.xMax - ToggleWidth, rect.y, ToggleWidth, rect.height);
-            var previewRect = new Rect(toggleRect.x - ShapePreviewSize - 8f, rect.y, ShapePreviewSize, ShapePreviewSize);
-            var shapeRect = new Rect(rect.x, rect.y, previewRect.x - rect.x - 6f, rect.height);
+            var sizeRect = new Rect(rect.x, rect.y, toggleRect.x - rect.x - 8f, rect.height);
 
-            EditorGUI.PropertyField(shapeRect, shape, new GUIContent("Shape", shape.tooltip));
-            DrawShapePreview(previewRect, (ItemShape)shape.intValue);
+            // Width x Height, each at least 1 and at most the largest grid.
+            var fieldRect = EditorGUI.PrefixLabel(sizeRect, new GUIContent("Size", size.tooltip));
+            var half = (fieldRect.width - 14f) * 0.5f;
+            var value = size.vector2IntValue;
+            EditorGUI.BeginChangeCheck();
+            var width = EditorGUI.IntField(new Rect(fieldRect.x, fieldRect.y, half, fieldRect.height), value.x);
+            EditorGUI.LabelField(new Rect(fieldRect.x + half, fieldRect.y, 14f, fieldRect.height), "x", CenteredLabel);
+            var height = EditorGUI.IntField(new Rect(fieldRect.xMax - half, fieldRect.y, half, fieldRect.height), value.y);
+            if (EditorGUI.EndChangeCheck())
+            {
+                size.vector2IntValue = new Vector2Int(
+                    Mathf.Clamp(width, 1, InventorySettings.MaxGridSize),
+                    Mathf.Clamp(height, 1, InventorySettings.MaxGridSize));
+            }
+
             EditorGUI.PropertyField(toggleRect, canRotate, new GUIContent("Can Rotate", canRotate.tooltip));
         }
 
-        private static void DrawShapePreview(Rect rect, ItemShape shape)
+        // Under the icon, in a frame like the icon's: the item's rectangle as grid cells, so it reads as a picture of
+        // how the item sits in the grid. Red if it can't fit the grid in any rotation.
+        private static void DrawSizePreview(Rect rect, SerializedProperty property)
         {
+            var size = Vector2Int.Max(property.FindPropertyRelative("size").vector2IntValue, Vector2Int.one);
+            var fits = FitsGrid(property, size, property.FindPropertyRelative("canRotate").boolValue);
+            var tooltip = fits
+                ? $"How the item sits in the grid: {size.x} x {size.y} cells."
+                : $"{size.x} x {size.y} cells: too big for the grid in any rotation.";
+            EditorGUI.LabelField(rect, new GUIContent(string.Empty, tooltip));
+
             if (Event.current.type != EventType.Repaint)
             {
                 return;
             }
 
-            // Every shape fits in 3x3 cells.
-            var cell = Mathf.Floor(Mathf.Min(rect.width, rect.height) / 3f);
-            var size = ItemShapes.GetSize(shape, 0);
-            var originX = rect.x + (rect.width - size.x * cell) * 0.5f;
-            var originY = rect.y + (rect.height - size.y * cell) * 0.5f;
+            // The same frame as the icon's empty sprite field above it.
+            EditorStyles.objectFieldThumb.Draw(rect, GUIContent.none, false, false, false, false);
+            var inner = new Rect(rect.x + 1f, rect.y + 1f, rect.width - 2f, rect.height - 2f);
 
-            foreach (var offset in ItemShapes.GetCells(shape, 0))
+            // Cells stay small enough to read as cells, even for a 1 x 1 item.
+            var area = new Rect(inner.x + PreviewPadding, inner.y + PreviewPadding,
+                inner.width - PreviewPadding * 2f, inner.height - PreviewPadding * 2f);
+            var cell = Mathf.Clamp(Mathf.Floor(Mathf.Min(area.width / size.x, area.height / size.y)), 1f, MaxPreviewCell);
+            var gap = cell >= 4f ? 1f : 0f;
+            var originX = Mathf.Round(area.x + (area.width - size.x * cell) * 0.5f);
+            var originY = Mathf.Round(area.y + (area.height - size.y * cell) * 0.5f);
+            var color = fits ? ShapeCellColor : TooBigColor;
+
+            for (var y = 0; y < size.y; y++)
             {
-                EditorGUI.DrawRect(new Rect(originX + offset.x * cell, originY + offset.y * cell, cell - 1f, cell - 1f), ShapeCellColor);
+                for (var x = 0; x < size.x; x++)
+                {
+                    EditorGUI.DrawRect(new Rect(originX + x * cell, originY + y * cell, cell - gap, cell - gap), color);
+                }
             }
+        }
+
+        // Whether the item fits the InventoryData's grid as set or, with Can Rotate, turned.
+        private static bool FitsGrid(SerializedProperty property, Vector2Int size, bool canRotate)
+        {
+            var columns = property.serializedObject.FindProperty("settings.columns");
+            var rows = property.serializedObject.FindProperty("settings.rows");
+            if (columns == null || rows == null)
+            {
+                return true;
+            }
+
+            return (size.x <= columns.intValue && size.y <= rows.intValue)
+                   || (canRotate && size.y <= columns.intValue && size.x <= rows.intValue);
         }
 
         private static bool HasModeLine(SerializedProperty property)

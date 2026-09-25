@@ -35,7 +35,7 @@ blocks: **INVENTORY SETTINGS** and **ITEMS**.
 | `Unlimited` | none | none; slots are added as needed |
 | `Weight` | Max Weight | total weight of every item ≤ Max Weight |
 | `MaxSlot` | Max Slots | a fixed number of slots |
-| `Grid` | Columns, Rows | a Columns x Rows grid; every item covers the cells of its Shape |
+| `Grid` | Columns, Rows | a Columns x Rows grid, like a Resident Evil 4 attaché case; every item covers a Width x Height rectangle of cells |
 
 **2. Add your items to groups.** Group names only organize the Inspector. Every item has:
 
@@ -47,7 +47,7 @@ blocks: **INVENTORY SETTINGS** and **ITEMS**.
 | Stackable / Max Stack | Stackable items pile up in one slot up to Max Stack, then open a new slot. Other items (e.g. a weapon) take a new slot every time |
 | Description | What the item is, e.g. for a tooltip (optional). Read it as `item.Description` |
 | Weight | **Weight mode only.** Weight of one item |
-| Shape / Can Rotate | **Grid mode only.** `Square 1x1`, `Rectangle 2x1`, `L Shape` (3 cells), `Rectangle 3x1`, `Square 2x2`. With Can Rotate, the item may be turned 90° to fit |
+| Size / Can Rotate | **Grid mode only.** Width x Height of the item's rectangle, in cells (e.g. `1 x 1` for ammo, `3 x 2` for a handgun, `9 x 2` for a rifle). The preview turns red if it can't fit the grid. With Can Rotate, the item may be turned 90° to fit |
 
 **3. Click Compile.** It:
 - generates the `ItemTypes` enum; each member's value is the item's stable id, so reordering or deleting
@@ -55,6 +55,22 @@ blocks: **INVENTORY SETTINGS** and **ITEMS**.
 - adds a `Collectible` component to every item's prefab (only if missing) and assigns its item.
 
 Prefabs that are already up to date are skipped, and `ItemTypes.cs` is only rewritten when it changes.
+
+**Grid extras.** A `GridInventory` (the inventory of Grid mode) can also:
+
+- `Organize()`: pack every item tightly, like the attaché case's "Organize" - the largest first, each in
+  the first spot it fits, turned if that is the only way. If the packing can't find room for everything
+  (possible when the grid is nearly full), nothing moves and it returns false. The window's **Organize**
+  button calls it.
+- `Resize(columns, rows)`: make the case bigger, e.g. one bought from a merchant. Items keep their cells;
+  a smaller size is refused (false) if an item would end up outside. The UI redraws itself
+  (`Inventory.LayoutChanged`).
+
+```csharp
+var grid = (GridInventory)InventoryManager.Main;
+grid.Resize(grid.Columns + 1, grid.Rows + 1);
+grid.Organize();
+```
 
 **4. Initialize from your GameManager:**
 
@@ -147,13 +163,14 @@ project, compiled to nothing, and come back to life when InventorySystem is impo
 | `Panels/InventoryPanel` | `PanelViewBase` | The window: open / close, capacity header (`12.5 / 50` + a bar in Weight mode, `8 / 20` slots, used / total cells in Grid), shows the content panel matching the mode, drops items dragged out of the UI into the world |
 | `Panels/InventoryContentPanel` | `PanelViewBase` | Base of the two below: binding, drag and drop, tooltips |
 | `Panels/InventoryListPanel` | `InventoryContentPanel` | Unlimited / Weight / MaxSlot: rows of slots |
-| `Panels/InventoryGridPanel` | `InventoryContentPanel` | Grid: cells, items sized to their shape, green / red drop preview, rotate while dragging |
+| `Panels/InventoryGridPanel` | `InventoryContentPanel` | Grid: cells, items sized to their rectangle, green / red drop preview, rotate while dragging, `Organize()` |
 | `Panels/InventoryTooltipPanel` | `PanelViewBase` | Item name, stack and weight on hover |
 | `Controllers/InventoryController` | `ControllerBase` | The only listener to the inventory's events; passes them on to the views |
 | `Panels/InventoryNotificationPanel` | `PanelViewBase` | "+3 Apple" / "Inventory full" toasts, merged per item; shown only while a toast is on screen |
 | `Panels/InventoryToastPanel` | `PanelViewBase` | One toast |
 | `Buttons/InventorySlotButton` | `ButtonViewBase` | One slot: icon, amount, click / hover / drag |
 | `Buttons/InventoryCloseButton` | `ButtonViewBase` | Closes the window it sits in |
+| `Buttons/InventoryOrganizeButton` | `ButtonViewBase` | Packs the grid of the window it sits in; shown only in Grid mode |
 | `Panels/Editor/InventoryUIBuilder` | - | `GameObject > UI > Inventory System` menu (not in `MVC/Editor/`: that folder is UniMVC's own editor assembly, which can't see your views) |
 
 **Setup:** right-click the Canvas, then **UI > Inventory System > Inventory Window** (and
@@ -161,6 +178,11 @@ project, compiled to nothing, and come back to life when InventorySystem is impo
 `InventoryController` to the canvas if they are missing, and lists the new panels and the controller in
 the `UIManager` (and the window's own views in the window). Call `UIManager.Initialize()` from your
 bootstrap code, after `InventoryManager.Initialize`.
+
+The grid's cells are made right away from your `InventoryData`'s Columns x Rows, so the case can be seen
+and styled in the editor, and only the content panel of the data's mode is left active. After changing
+Columns / Rows, right-click the **Inventory Grid Panel** component > **Build Cells From Inventory Data**.
+At runtime the panel uses the cells it finds and adds any missing ones (e.g. after `Resize`).
 
 **Controls**
 
@@ -171,6 +193,7 @@ bootstrap code, after `InventoryManager.Initialize`.
 | Left drag | Move the whole stack: merge into the same item, swap with another (list), move into an empty slot |
 | Right drag | Move half the stack |
 | R while dragging | Rotate the item (Grid; project-wide action `RotateItem` if you add one) |
+| Organize button | Pack the grid tightly (Grid) |
 | Drag onto another window | Transfer (e.g. player <-> chest) |
 | Drag out of the UI | Drop into the world, in front of the `Player` (`ItemSpawner`) |
 

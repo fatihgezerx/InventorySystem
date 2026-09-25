@@ -1,0 +1,29 @@
+#if HAS_INVENTORY_SYSTEM && HAS_UNIMVC && HAS_EVENT_SYSTEM && HAS_INPUT_SYSTEM
+using UniMVC;
+
+namespace InventorySystem.UI
+{
+    /// <summary>
+    /// Packs the grid shown by the <see cref="InventoryPanel"/> it sits in tightly, like an attaché case's
+    /// "Organize" (<see cref="InventoryGridPanel.Organize"/>). The window shows it only for Grid inventories.
+    /// </summary>
+    public sealed class InventoryOrganizeButton : ButtonViewBase
+    {
+        private InventoryPanel _panel;
+
+        protected override void OnInitialize()
+        {
+            base.OnInitialize();
+            _panel = GetComponentInParent<InventoryPanel>(true);
+        }
+
+        protected override void OnClick()
+        {
+            if (_panel != null && _panel.ActiveContent is InventoryGridPanel grid)
+            {
+                grid.Organize();
+            }
+        }
+    }
+}
+#endif

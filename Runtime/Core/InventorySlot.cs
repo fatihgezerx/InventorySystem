@@ -1,5 +1,3 @@
-using System;
-using System.Collections.Generic;
 using UnityEngine;
 
 namespace InventorySystem
@@ -11,7 +9,7 @@ namespace InventorySystem
     /// </summary>
     /// <remarks>
     /// In a <see cref="GridInventory"/>, a slot is one placed item: <see cref="Position"/> is its top-left
-    /// cell and <see cref="Rotation"/> how many times it is turned 90° clockwise; empty slots have no cells.
+    /// cell and <see cref="Rotation"/> whether it is turned 90° clockwise; empty slots have no cells.
     /// </remarks>
     public sealed class InventorySlot
     {
@@ -31,7 +29,7 @@ namespace InventorySystem
         /// <summary>Grid only: the top-left cell the item covers.</summary>
         public Vector2Int Position { get; internal set; }
 
-        /// <summary>Grid only: clockwise quarter turns (0-3). In a UI, rotate the icon by <c>-90 * Rotation</c> degrees on Z.</summary>
+        /// <summary>Grid only: 0 as set, 1 turned 90° clockwise. In a UI, rotate the icon by <c>-90 * Rotation</c> degrees on Z.</summary>
         public int Rotation { get; internal set; }
 
         public bool IsEmpty => Item == null;
@@ -48,10 +46,7 @@ namespace InventorySystem
         /// <summary>Total weight of the slot's contents.</summary>
         public float Weight => Item != null ? Item.Weight * Amount : 0f;
 
-        /// <summary>Grid only: width and height, in cells, of the area the item covers in its current rotation.</summary>
-        public Vector2Int Size => Item != null ? ItemShapes.GetSize(Item.Shape, Rotation) : Vector2Int.zero;
-
-        /// <summary>Grid only: the cells the item covers, relative to <see cref="Position"/>.</summary>
-        public IReadOnlyList<Vector2Int> Cells => Item != null ? ItemShapes.GetCells(Item.Shape, Rotation) : Array.Empty<Vector2Int>();
+        /// <summary>Grid only: width and height, in cells, of the rectangle the item covers in its current rotation.</summary>
+        public Vector2Int Size => Item != null ? Item.GetSize(Rotation) : Vector2Int.zero;
     }
 }

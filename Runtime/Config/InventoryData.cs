@@ -16,7 +16,7 @@ namespace InventorySystem
         /// <summary>A fixed number of slots.</summary>
         MaxSlot,
 
-        /// <summary>A <c>Columns</c> x <c>Rows</c> grid; every item covers the cells of its <see cref="ItemShape"/>.</summary>
+        /// <summary>A <c>Columns</c> x <c>Rows</c> grid; every item covers a rectangle of cells, its <see cref="ItemDefinition.Size"/>.</summary>
         Grid
     }
 

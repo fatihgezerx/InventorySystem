@@ -3,6 +3,7 @@ using InventorySystem.UI;
 using TMPro;
 using UniMVC;
 using UnityEditor;
+using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.InputSystem.UI;
 using UnityEngine.UI;
@@ -16,10 +17,15 @@ namespace InventorySystem.UIEditor
     /// lists the new panels in it (and the window's own views in the window), so <c>UIManager.Initialize</c>
     /// initializes all of them:
     /// <list type="bullet">
-    /// <item><b>Inventory Window</b>: an <see cref="InventoryPanel"/> with its header, weight bar,
-    /// <see cref="InventoryListPanel"/> and <see cref="InventoryGridPanel"/>, plus an <see cref="InventoryTooltipPanel"/>.</item>
+    /// <item><b>Inventory Window</b>: an <see cref="InventoryPanel"/> with its header (with an Organize
+    /// button for grids), weight bar, <see cref="InventoryListPanel"/> and <see cref="InventoryGridPanel"/>,
+    /// plus an <see cref="InventoryTooltipPanel"/>.</item>
     /// <item><b>Inventory Notifications</b>: an <see cref="InventoryNotificationPanel"/>.</item>
     /// </list>
+    /// The grid's cells are made right away from the project's <see cref="InventoryData"/> (Columns x Rows),
+    /// so the attaché case can be seen and styled before play, and only the content panel of the data's
+    /// mode is left active. After changing Columns / Rows, right-click the Inventory Grid Panel component >
+    /// "Build Cells From Inventory Data".
     /// </summary>
     internal static class InventoryUIBuilder
     {
@@ -48,6 +54,22 @@ namespace InventorySystem.UIEditor
             Undo.RegisterCreatedObjectUndo(window, "Create Inventory Window");
             Undo.RegisterCreatedObjectUndo(tooltip, "Create Inventory Window");
             Selection.activeGameObject = window;
+        }
+
+        // Remakes the grid's cells after the InventoryData's Columns / Rows changed.
+        [MenuItem("CONTEXT/InventoryGridPanel/Build Cells From Inventory Data")]
+        private static void BuildGridCells(MenuCommand command)
+        {
+            var panel = (InventoryGridPanel)command.context;
+            var settings = FindSettings();
+
+            Undo.RegisterFullObjectHierarchyUndo(panel.gameObject, "Build Grid Cells");
+            panel.LayoutGrid(settings.Columns, settings.Rows);
+            EditorUtility.SetDirty(panel);
+            if (!EditorUtility.IsPersistent(panel))
+            {
+                EditorSceneManager.MarkSceneDirty(panel.gameObject.scene);
+            }
         }
 
         [MenuItem(MenuRoot + "Inventory Notifications", false, 2101)]
@@ -89,6 +111,14 @@ namespace InventorySystem.UIEditor
             Layout((RectTransform)title.transform, flexibleWidth: 1f);
             var capacity = AddText(NewRect("Capacity", header), "0 / 0", 20f, TextAlignmentOptions.Right, FontStyles.Normal, MutedTextColor);
 
+            // Grid mode only; the window hides it otherwise.
+            var organize = NewRect("Organize Button", header);
+            var organizeImage = AddImage(organize, RoundedSprite, new Color(1f, 1f, 1f, 0.12f), true);
+            organize.gameObject.AddComponent<Button>().targetGraphic = organizeImage;
+            var organizeButton = organize.gameObject.AddComponent<InventoryOrganizeButton>();
+            Layout(organize, preferredWidth: 96f, preferredHeight: 30f);
+            Stretch((RectTransform)AddText(NewRect("Label", organize), "Organize", 16f, TextAlignmentOptions.Center, FontStyles.Bold, Color.white).transform);
+
             var close = NewRect("Close Button", header);
             var closeImage = AddImage(close, RoundedSprite, new Color(1f, 1f, 1f, 0.12f), true);
             close.gameObject.AddComponent<Button>().targetGraphic = closeImage;
@@ -105,8 +135,15 @@ namespace InventorySystem.UIEditor
             fill.anchorMax = new Vector2(0.4f, 1f);
             AddImage(fill, RoundedSprite, BarFillColor, false);
 
+            var settings = FindSettings();
             var list = BuildListContent(panel);
-            var grid = BuildGridContent(panel);
+            var grid = BuildGridContent(panel, settings);
+
+            // Only the content of the data's mode shows while designing; at runtime the window picks it itself.
+            var isGrid = settings.InventoryType == InventoryType.Grid;
+            list.gameObject.SetActive(!isGrid);
+            grid.gameObject.SetActive(isGrid);
+            organize.gameObject.SetActive(isGrid);
 
             var so = new SerializedObject(window);
             var contents = so.FindProperty("contents");
@@ -116,11 +153,13 @@ namespace InventorySystem.UIEditor
             so.FindProperty("capacityText").objectReferenceValue = capacity;
             so.FindProperty("weightBar").objectReferenceValue = bar.gameObject;
             so.FindProperty("weightFill").objectReferenceValue = fill;
+            so.FindProperty("organizeButton").objectReferenceValue = organize.gameObject;
             so.ApplyModifiedPropertiesWithoutUndo();
 
-            // The window initializes its own views: both content panels and the close button.
+            // The window initializes its own views: both content panels and the header buttons.
             window.ChildViews.Add(list);
             window.ChildViews.Add(grid);
+            window.ChildViews.Add(organizeButton);
             window.ChildViews.Add(closeButton);
 
             return panel.gameObject;
@@ -167,7 +206,7 @@ namespace InventorySystem.UIEditor
             return panel;
         }
 
-        private static InventoryGridPanel BuildGridContent(RectTransform parent)
+        private static InventoryGridPanel BuildGridContent(RectTransform parent, InventorySettings settings)
         {
             var root = NewRect("Grid Content", parent);
             AddImage(root, null, Transparent, true); // drop target for empty cells
@@ -193,6 +232,9 @@ namespace InventorySystem.UIEditor
             so.FindProperty("itemTemplate").objectReferenceValue = itemTemplate;
             so.FindProperty("layoutElement").objectReferenceValue = layout;
             so.ApplyModifiedPropertiesWithoutUndo();
+
+            // One cell per grid cell, made now so the case is there to see and style.
+            panel.LayoutGrid(settings.Columns, settings.Rows);
             return panel;
         }
 
@@ -324,6 +366,21 @@ namespace InventorySystem.UIEditor
         #endregion
 
         #region Helpers
+
+        // The settings of the project's InventoryData (the first one found), or the defaults without one.
+        private static InventorySettings FindSettings()
+        {
+            foreach (var guid in AssetDatabase.FindAssets("t:" + nameof(InventoryData)))
+            {
+                var data = AssetDatabase.LoadAssetAtPath<InventoryData>(AssetDatabase.GUIDToAssetPath(guid));
+                if (data != null)
+                {
+                    return data.Settings;
+                }
+            }
+
+            return new InventorySettings();
+        }
 
         // Adds the new top-level views to the canvas's UIManager lists.
         private static void List(Canvas canvas, params ViewBase[] views)

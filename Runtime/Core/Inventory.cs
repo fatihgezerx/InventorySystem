@@ -66,6 +66,12 @@ namespace InventorySystem
         /// <summary>Anything changed. Raised once per call, after every other event - e.g. to refresh a weight bar.</summary>
         public event Action Changed;
 
+        /// <summary>
+        /// The whole layout changed at once - e.g. a grid was resized - so per-slot events don't describe it.
+        /// Redraw everything. Raised before <see cref="Changed"/>.
+        /// </summary>
+        public event Action LayoutChanged;
+
         /// <summary>The items this inventory can hold.</summary>
         public ItemDatabase Database { get; }
 
@@ -448,6 +454,8 @@ namespace InventorySystem
         protected void NotifySlotChanged(int index) => SlotChanged?.Invoke(index);
 
         protected void NotifyChanged() => Changed?.Invoke();
+
+        protected void NotifyLayoutChanged() => LayoutChanged?.Invoke();
 
         #endregion
 
