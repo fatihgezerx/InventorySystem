@@ -171,18 +171,16 @@ project, compiled to nothing, and come back to life when InventorySystem is impo
 | `Buttons/InventorySlotButton` | `ButtonViewBase` | One slot: icon, amount, click / hover / drag |
 | `Buttons/InventoryCloseButton` | `ButtonViewBase` | Closes the window it sits in |
 | `Buttons/InventoryOrganizeButton` | `ButtonViewBase` | Packs the grid of the window it sits in; shown only in Grid mode |
-| `Panels/Editor/InventoryUIBuilder` | - | `GameObject > UI > Inventory System` menu (not in `MVC/Editor/`: that folder is UniMVC's own editor assembly, which can't see your views) |
 
-**Setup:** right-click the Canvas, then **UI > Inventory System > Inventory Window** (and
-**Inventory Notifications**). This builds everything fully wired, adds a `UIManager` and the
-`InventoryController` to the canvas if they are missing, and lists the new panels and the controller in
-the `UIManager` (and the window's own views in the window). Call `UIManager.Initialize()` from your
-bootstrap code, after `InventoryManager.Initialize`.
+**Setup:** lay out the UI yourself (by hand, or with a UI editor such as
+[EasyUI](https://github.com/fatihgezerx/EasyUI)), add these views to its objects and fill in their
+fields. Add a `UIManager` and the `InventoryController` to the canvas, then press **Collect From
+Children** on the `UIManager` and on each panel. Call `UIManager.Initialize()` from your bootstrap code,
+after `InventoryManager.Initialize`.
 
-The grid's cells are made right away from your `InventoryData`'s Columns x Rows, so the case can be seen
-and styled in the editor, and only the content panel of the data's mode is left active. After changing
-Columns / Rows, right-click the **Inventory Grid Panel** component > **Build Cells From Inventory Data**.
-At runtime the panel uses the cells it finds and adds any missing ones (e.g. after `Resize`).
+The grid panel uses every Image under its Cell Layer as a background cell, so cells placed there in the
+editor can be seen and styled before play. At runtime it adds any missing ones from its Cell Template
+(e.g. after `Resize`).
 
 **Controls**
 

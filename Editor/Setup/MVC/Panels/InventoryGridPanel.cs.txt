@@ -15,10 +15,9 @@ namespace InventorySystem.UI
     /// it, or on a stack of the same item to merge. <see cref="Organize"/> packs everything tightly.
     /// </summary>
     /// <remarks>
-    /// The background cells can be made in the editor (the Inventory UI builder does, from the
-    /// InventoryData's Columns x Rows) so the grid can be seen and styled before play: every Image under
-    /// Cell Layer is used as a cell, and only missing ones are made from Cell Template - e.g. after
-    /// <see cref="GridInventory.Resize"/>.
+    /// The background cells can be placed under Cell Layer in the editor, so the grid can be seen and styled
+    /// before play: every Image under Cell Layer is used as a cell, and only missing ones are made from Cell
+    /// Template - e.g. after <see cref="GridInventory.Resize"/>.
     /// </remarks>
     public sealed class InventoryGridPanel : InventoryContentPanel
     {
@@ -116,16 +115,15 @@ namespace InventorySystem.UI
         /// <summary>
         /// Sizes the panel to a <paramref name="columns"/> x <paramref name="rows"/> grid and lays out one
         /// background cell per grid cell: the cells already under Cell Layer first, then new ones from Cell
-        /// Template. Runs on every redraw; the Inventory UI builder also runs it in edit mode, so the grid is
-        /// there to see and style before play. Cells beyond the grid are hidden (removed, in edit mode).
+        /// Template. Runs on every redraw. Cells beyond the grid are hidden.
         /// </summary>
         public void LayoutGrid(int columns, int rows)
         {
             columns = Mathf.Max(0, columns);
             rows = Mathf.Max(0, rows);
 
-            // Redrawn on every open: at runtime nothing needs touching while the grid keeps its size.
-            if (Application.isPlaying && _laidOut == new Vector2Int(columns, rows))
+            // Redrawn on every open: nothing needs touching while the grid keeps its size.
+            if (_laidOut == new Vector2Int(columns, rows))
             {
                 return;
             }
@@ -154,18 +152,6 @@ namespace InventorySystem.UI
                 _cells.Add(cell);
             }
 
-#if UNITY_EDITOR
-            // In edit mode the hierarchy is what is being built: drop the cells the grid doesn't need.
-            if (!Application.isPlaying)
-            {
-                for (var i = _cells.Count - 1; i >= cellCount; i--)
-                {
-                    UnityEditor.Undo.DestroyObjectImmediate(_cells[i].gameObject);
-                    _cells.RemoveAt(i);
-                }
-            }
-#endif
-
             for (var i = 0; i < _cells.Count; i++)
             {
                 var show = i < cellCount;
@@ -181,12 +167,6 @@ namespace InventorySystem.UI
 
                 var cell = new Vector2Int(i % columns, i / columns);
                 _cells[i].rectTransform.anchoredPosition = CellPosition(cell);
-#if UNITY_EDITOR
-                if (!Application.isPlaying)
-                {
-                    _cells[i].name = $"Cell ({cell.x}, {cell.y})";
-                }
-#endif
             }
         }
 
@@ -419,11 +399,10 @@ namespace InventorySystem.UI
             layer.sizeDelta = size;
         }
 
-        // Takes over the cells already under Cell Layer (e.g. made by the builder in edit mode), once. In
-        // edit mode the hierarchy may have been changed by hand since, so it is read again every time.
+        // Takes over the cells already under Cell Layer (e.g. placed there in the editor), once.
         private void CollectCells()
         {
-            if (_cellsCollected && Application.isPlaying)
+            if (_cellsCollected)
             {
                 return;
             }
