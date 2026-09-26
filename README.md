@@ -2,7 +2,8 @@
 
 Data-driven inventory system for Unity with four capacity modes: **Unlimited**, **Weight**, **MaxSlot**
 and **Grid**. Every change is published through **EventSystem**, so a UI only listens and never polls.
-With **UniMVC**, a ready-made inventory UI is added to your project (see [UI](#ui)).
+With **UniMVC**, a ready-made inventory UI is added to your project (see [UI](#ui)), and with **EasyUI**
+it is built from a panel you design (see [Building the UI with EasyUI](#building-the-ui-with-easyui)).
 
 ## Requirements
 
@@ -12,12 +13,14 @@ With **UniMVC**, a ready-made inventory UI is added to your project (see [UI](#u
 | [UniMVC](https://github.com/fatihgezerx/UniMVC) | For the UI | The inventory UI is built from UniMVC views |
 | Input System (`com.unity.inputsystem`) | For the UI | Open / close key, rotating items |
 | [LocalizationSystem](https://github.com/fatihgezerx/LocalizationSystem) | No | Translating item names and descriptions (see [Localization](#localization)) |
+| [EasyUI](https://github.com/fatihgezerx/EasyUI) | No | Building the inventory UI from a panel designed in EasyUI (see [Building the UI with EasyUI](#building-the-ui-with-easyui)) |
+| [PoolSystem](https://github.com/fatihgezerx/PoolSystem) | No | Taking dropped and examined items from pools instead of instantiating them (see [Dropping items back into the world](#dropping-items-back-into-the-world)) |
 
 Importing InventorySystem never breaks your project. A small setup script checks for these, leaves
 InventorySystem out of compilation while EventSystem is missing, and offers to install what's missing
 (if you pick **Not now**, it asks again in the next editor session or when InventorySystem is imported again). EventSystem and UniMVC are downloaded
-into `Assets/Scripts/EventSystem/` and `Assets/Scripts/MVC/`, exactly as if you had copied them there. InventorySystem itself contains no UI code
-and no code of any other system: pooling, interaction and UI are all wired from the outside.
+into `Assets/Scripts/EventSystem/` and `Assets/Scripts/MVC/`, exactly as if you had copied them there. InventorySystem itself contains no UI code;
+the optional systems are used only while they are in the project, each behind its own scripting define symbol.
 
 ## Installation
 
@@ -27,8 +30,9 @@ Clone or download this repository and copy it into a folder under `Assets/` (e.g
 
 ## Setup
 
-**1. Create the data asset** via `Create > Inventory System > Inventory Data`. Its Inspector has two
-blocks: **INVENTORY SETTINGS** and **ITEMS**.
+**1. Create the data asset** via `Create > Inventory System > Inventory Data`. Its Inspector has
+**INVENTORY SETTINGS**, then **UI SETTINGS** (while EasyUI and UniMVC are in the project, see
+[Building the UI with EasyUI](#building-the-ui-with-easyui)), then **ITEMS SETTINGS**.
 
 | Inventory Type | Extra settings | Limit |
 |---|---|---|
@@ -92,29 +96,28 @@ A `Collectible` gives its item to the inventory when `Collect()` is called:
 **Amount** is how many items the object gives. If the inventory can't take everything, the object keeps
 the rest and **On Inventory Full** fires.
 
-What happens to the object itself is wired in the Inspector, so the inventory never needs to know
-about pooling:
+What happens to the object itself is wired in the Inspector:
 
 | Event | When | Typical wiring |
 |---|---|---|
-| **On Take** | Everything in the object went into the inventory | `GameObject > SetActive(false)` (Compile wires this by default), or `Poolable > ReleaseSelf` for pooled objects |
+| **On Take** | Everything in the object went into the inventory | `GameObject > SetActive(false)` (Compile wires this by default). With PoolSystem, an object taken from a pool also goes back to it by itself - don't wire `Poolable > ReleaseSelf` too |
 | **On Release** | The object was just dropped from the inventory back into the world, with its position and Amount set | Effects, sounds... |
 | **On Inventory Full** | The inventory couldn't take everything | A "full" sound or message |
 
 ### Dropping items back into the world
 
-`ItemSpawner.Spawn(item, amount, position, rotation)` (used by the UI's `ItemDropper`) spawns an item's
-prefab, sets its amount and invokes its On Release. A UnityEvent can't hand back an object, so where
-that object comes from is the one thing set in code: `Instantiate` by default, or anything you assign
-to `ItemSpawner.SpawnOverride`. With PoolSystem, set it once from your own bootstrap code (e.g. a
-GameManager), so the two systems still don't reference each other:
+`ItemSpawner.Spawn(item, amount, position, rotation)` (used when an item is dropped from the UI) spawns
+an item's prefab, sets its amount and invokes its On Release. The object comes from:
 
-```csharp
-ItemSpawner.SpawnOverride = item =>
-    item.Prefab.TryGetComponent<Poolable>(out var poolable) && poolable.PoolType != PoolTypes.None
-        ? PoolManager.Get(poolable.PoolType)
-        : null;
-```
+1. `ItemSpawner.SpawnOverride`, if you set one (e.g. a pool of your own);
+2. with [PoolSystem](https://github.com/fatihgezerx/PoolSystem) in the project, the pool the prefab was
+   compiled into - add the item prefabs to a PoolData and press its Compile, and call
+   `PoolManager.Initialize` before items are dropped;
+3. otherwise `Instantiate`.
+
+A pooled object goes back to its pool by itself when it is collected again. Objects placed in the
+scene by hand aren't from a pool, so they only do what On Take says. The Examine View takes its model
+from the same pools (see [Examine view](#examine-view)).
 
 ## Code API
 
@@ -171,16 +174,99 @@ project, compiled to nothing, and come back to life when InventorySystem is impo
 | `Buttons/InventorySlotButton` | `ButtonViewBase` | One slot: icon, amount, click / hover / drag |
 | `Buttons/InventoryCloseButton` | `ButtonViewBase` | Closes the window it sits in |
 | `Buttons/InventoryOrganizeButton` | `ButtonViewBase` | Packs the grid of the window it sits in; shown only in Grid mode |
+| `Panels/InventoryDetailsPanel` | `PanelViewBase` | The item clicked: name, description, icon and examine view; follows its slot, empties with it |
+| `Panels/InventoryExamineView` | - | On a Raw Image: the item's 3D model, rendered by a camera of its own and turned by dragging on it |
+| `Buttons/InventoryDropButton` | `ButtonViewBase` | Drops the selected item into the world; can't be pressed while nothing is selected |
+| `Buttons/InventoryUseButton` | `ButtonViewBase` | Raises the window's `UseRequested` for the selected item (nothing happens while nothing listens); can't be pressed while nothing is selected |
+| `Panels/Editor/InventoryUIBinder` | - | **Build UI** in UI SETTINGS (not in `MVC/Editor/`: that folder is UniMVC's own editor assembly, which can't see your views) |
 
-**Setup:** lay out the UI yourself (by hand, or with a UI editor such as
-[EasyUI](https://github.com/fatihgezerx/EasyUI)), add these views to its objects and fill in their
-fields. Add a `UIManager` and the `InventoryController` to the canvas, then press **Collect From
-Children** on the `UIManager` and on each panel. Call `UIManager.Initialize()` from your bootstrap code,
-after `InventoryManager.Initialize`.
+**Setup by hand:** lay out the UI yourself, add these views to its objects and fill in their fields. Add
+a `UIManager` and the `InventoryController` to the canvas, then press **Collect From Children** on the
+`UIManager` and on each panel. Or let EasyUI do all of it (next section).
 
 The grid panel uses every Image under its Cell Layer as a background cell, so cells placed there in the
 editor can be seen and styled before play. At runtime it adds any missing ones from its Cell Template
 (e.g. after `Resize`).
+
+### Building the UI with EasyUI
+
+With [EasyUI](https://github.com/fatihgezerx/EasyUI) in the project too, the InventoryData Inspector shows a
+**UI SETTINGS** block between INVENTORY SETTINGS and ITEMS SETTINGS:
+
+1. Design the inventory window in EasyUI (`Tools > Easy UI`) and save it. **The panel is the window**: it
+   opens and closes whole, and its boxes (header, details, tooltip...) are yours to lay out.
+2. Mark what does something with **Inventory roles**: select an element and pick its role from the **Role**
+   menu at the top of EasyUI's inspector, under **Inventory** (e.g. *Inventory > Item Name*). Boxes get no
+   role, except the slots' (Slot
+   Container, Slot Template): the menu lists only the roles that fit the element - text roles on a Text,
+   image roles on an Image, button roles on a Button, the Weight Bar on a Slider, the Examine View on a Raw
+   Image, and the slots' roles on an Empty or an Image (a box with a background is an Image). Names don't
+   matter; Build UI finds elements by role only.
+3. Drop the saved panel into UI SETTINGS' **Panel** field. A checklist shows what the panel has: green for
+   what it has, red for something required it lacks, grey for an optional feature it lacks. Nothing is
+   ticked by hand: the panel decides which features there are.
+4. Pick the behaviour, then press **Build UI**.
+
+| Role | On | Needed | Becomes |
+|---|---|---|---|
+| Slot Container | Empty, Image | Yes | The content panel, where the slots are laid out, e.g. a Scroll View's Content. Grid: the grid itself |
+| Slot Template | Empty, Image, Button | Yes | One slot (`InventorySlotButton`), copied for every slot (Grid: every item); hidden itself |
+| Item Icon | Image | No | An item's icon. **Where it sits says which item**: inside the Slot Template the slot's (made when missing), inside the toast box the notification's, anywhere else the item clicked. Several elements can have it |
+| Slot Amount | Text | No | Inside the Slot Template: the stack's amount; made when missing. It may sit inside the Item Icon (to lie over it): Build UI moves it up to the slot, so it doesn't turn with a rotated grid item |
+| Cell Template | Image | No | Grid: one empty background cell, copied for every cell (the items lie over the cells); hidden itself. Without it, cells are made from the Slot Template's look |
+| Capacity Text | Text | No | "12.5 / 50", "8 / 20" or used / total cells, whatever the inventory's type |
+| Weight Bar | Slider | No | Weight: set to total / max weight (the player can't drag it); hidden in other types |
+| Close Button / Organize Button | Button | No | `InventoryCloseButton` / `InventoryOrganizeButton` (Grid) |
+| Item Name / Item Description | Text | No | The item clicked |
+| Examine View | Raw Image | No | `InventoryExamineView`: the item clicked in 3D |
+| Drop Button | Button | No | `InventoryDropButton`: drops the selected item into the world |
+| Use Button | Button | No | `InventoryUseButton`: raises the window's `UseRequested` (inventory, slot) for the selected item, for your code to use it; does nothing by itself yet |
+| Tooltip Name / Tooltip Details | Text | No | The hovered item. **The box holding them becomes the tooltip** (`InventoryTooltipPanel`) |
+| Toast Message | Text | No | A notification. **The box holding it is the toast template** (put an Item Icon next to it for the item's icon), copied for every notification; **its parent stacks them** (`InventoryNotificationPanel`) |
+
+The item clicked is shown by an `InventoryDetailsPanel` that Build UI puts on an invisible object in the
+window, wherever Item Name, Description, (its) Item Icon and Examine View are.
+
+**Behaviour** (copied onto the views by Build UI):
+
+| Setting | Effect |
+|---|---|
+| Can Drag | Items can be dragged: moved, merged, split, swapped and carried to another window |
+| Can Click | A click on an item - or the start of a drag - selects it and shows it (needs Item Name, Item Description, an Item Icon outside the slots or Examine View) |
+| Can Drop To World | An item dragged out of the UI is dropped in front of the player. The Drop button drops either way |
+
+**Build UI** builds the panel into the scene's canvas, adds the views to the marked elements and wires
+them together:
+
+- The content panel matches INVENTORY SETTINGS' type. **Grid**: an `InventoryGridPanel` whose cells are
+  made right away from Columns x Rows, sized by the Slot Container's Grid Layout Group (cell size and
+  spacing, the group itself is then removed: the panel places cells itself) or else by the Cell Template.
+  The container gets a Layout Element the panel sizes to the whole grid, so a Content Size Fitter on it (or
+  a layout group around it) fits the grid. The grid's columns and rows are always INVENTORY SETTINGS' - a
+  Fixed Column Count on the Grid Layout Group changes nothing.
+  **Other types**: an `InventoryListPanel` laid out by the Slot Container's Grid Layout Group (made from the
+  Slot Template's size when there is none), with as many columns and visible rows as fit. In a Scroll View,
+  the Content gets a Content Size Fitter so it grows with its slots.
+- The panel's root gets the `InventoryPanel`. The notifications' box is taken out of it to the canvas
+  (named "<Panel> Notifications"), so they show while the inventory is closed; it gets a Vertical Layout
+  Group to stack them if it has no layout group.
+- The canvas gets a `UIManager` and an `InventoryController` if it has none, and every new view is listed
+  in the panel it sits in, or in the `UIManager`. The `UIManager` initializes them all in its `Start`.
+- Pressing it again offers to replace the earlier build (changes made to it in the scene are lost), or to
+  keep both. It is one undo step either way.
+
+### Examine view
+
+The Examine View shows the selected item's prefab in 3D. With PoolSystem and the prefab in a pool, the model is
+taken from that pool - nothing is instantiated - with its scripts, colliders and physics switched off while it
+is shown; it is put back as it was, and returned, when another item (or none) is shown. Otherwise a copy with
+only its meshes and renderers (none of its scripts, colliders or rigidbodies ever run) is made once per item and
+kept for the next time. The model sits far from the scene on its own layer (**Layer**, 31 by default: pick one
+nothing else uses). A camera of its own renders only that layer into a
+render texture (**Resolution** x Resolution, 1024 by default) shown on the Raw Image, and only while an item
+is shown and the window is open. Drag on the image with the left button to turn the model: right turns its
+front to the right, up tips it up. **Start Rotation**, **Field Of View**, **Framing**, **Background** and
+**Light Intensity** are on the component too.
 
 **Controls**
 
@@ -194,6 +280,8 @@ editor can be seen and styled before play. At runtime it adds any missing ones f
 | Organize button | Pack the grid tightly (Grid) |
 | Drag onto another window | Transfer (e.g. player <-> chest) |
 | Drag out of the UI | Drop into the world, in front of the `Player` (`ItemSpawner`) |
+| Click an item | Select it: shown by Item Name, Item Description, Item Icon and the Examine View |
+| Drag on the Examine View | Turn the selected item's model |
 
 While a window is open, the cursor is freed and the `Player` action map is paused (except the toggle).
 Content panels only listen while visible and redraw only the slots that change.

@@ -7,11 +7,12 @@ namespace InventorySystem
 {
     /// <summary>
     /// Custom Inspector for <see cref="InventoryData"/>: an INVENTORY SETTINGS box showing only the
-    /// capacity fields of the selected <see cref="InventoryType"/>, an ITEMS box of named groups (reordered
-    /// by dragging their handle), and a "Compile" button that hands off to <see cref="InventoryCompiler"/>.
+    /// capacity fields of the selected <see cref="InventoryType"/>, a UI SETTINGS box while Easy UI and UniMVC
+    /// are in the project (see InventoryDataEditor.UI.cs), an ITEMS SETTINGS box of named groups (reordered by
+    /// dragging their handle), and a "Compile" button that hands off to <see cref="InventoryCompiler"/>.
     /// </summary>
     [CustomEditor(typeof(InventoryData))]
-    internal sealed class InventoryDataEditor : Editor
+    internal sealed partial class InventoryDataEditor : Editor
     {
         private const float HeaderHeight = 28f;
         private const float GroupHeaderHeight = 22f;
@@ -66,6 +67,7 @@ namespace InventorySystem
 
             DrawInventorySettings();
             EditorGUILayout.Space(10);
+            DrawUISettings();
             DrawItems();
 
             serializedObject.ApplyModifiedProperties();
@@ -117,6 +119,9 @@ namespace InventorySystem
             EditorGUILayout.EndVertical();
         }
 
+        // The UI SETTINGS box and the space after it; nothing without Easy UI and UniMVC.
+        partial void DrawUISettings();
+
         private static string GetModeInfo(InventoryType type) => type switch
         {
             InventoryType.Weight =>
@@ -133,7 +138,7 @@ namespace InventorySystem
         private void DrawItems()
         {
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-            EditorGUILayout.LabelField("ITEMS", HeaderStyle, GUILayout.Height(HeaderHeight));
+            EditorGUILayout.LabelField("ITEMS SETTINGS", HeaderStyle, GUILayout.Height(HeaderHeight));
             EditorGUILayout.HelpBox(ItemsInfo, MessageType.Info);
             EditorGUILayout.Space(6);
 

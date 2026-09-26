@@ -1,0 +1,45 @@
+#if HAS_INVENTORY_SYSTEM && HAS_UNIMVC && HAS_EVENT_SYSTEM && HAS_INPUT_SYSTEM
+using UniMVC;
+
+namespace InventorySystem.UI
+{
+    /// <summary>
+    /// Drops the item selected in the <see cref="InventoryPanel"/> it sits in (the one its Details panel shows) into
+    /// the world, the whole stack - and, when nothing is selected, can't be pressed.
+    /// </summary>
+    public sealed class InventoryDropButton : ButtonViewBase
+    {
+        private InventoryPanel _panel;
+
+        protected override void OnInitialize()
+        {
+            base.OnInitialize();
+            _panel = GetComponentInParent<InventoryPanel>(true);
+            if (_panel != null)
+            {
+                _panel.SelectionChanged += Refresh;
+            }
+
+            Refresh();
+        }
+
+        private void OnDestroy()
+        {
+            if (_panel != null)
+            {
+                _panel.SelectionChanged -= Refresh;
+            }
+        }
+
+        protected override void OnClick()
+        {
+            if (_panel != null)
+            {
+                _panel.DropSelected();
+            }
+        }
+
+        private void Refresh() => Interactable = _panel != null && _panel.HasSelection;
+    }
+}
+#endif

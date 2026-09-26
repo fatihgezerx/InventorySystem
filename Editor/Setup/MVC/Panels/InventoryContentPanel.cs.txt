@@ -22,6 +22,9 @@ namespace InventorySystem.UI
     /// </remarks>
     public abstract class InventoryContentPanel : PanelViewBase, IDropHandler
     {
+        [Tooltip("Items can be dragged: moved, merged, split (right drag), swapped and carried to another window.")]
+        [SerializeField] private bool canDrag = true;
+
         private Inventory _subscribed;
         private Canvas _rootCanvas;
 
@@ -33,6 +36,9 @@ namespace InventorySystem.UI
 
         /// <summary>A slot holding an item was clicked (panel, slot index, button) - e.g. to use or equip it.</summary>
         public event Action<InventoryContentPanel, int, PointerEventData.InputButton> SlotClicked;
+
+        /// <summary>An item started being dragged out of a slot (panel, slot index) - once, as the drag begins.</summary>
+        public event Action<InventoryContentPanel, int> SlotDragStarted;
 
         /// <summary>Whether this panel can show an inventory of <paramref name="type"/>.</summary>
         public abstract bool Supports(InventoryType type);
@@ -178,7 +184,8 @@ namespace InventorySystem.UI
 
         internal void OnSlotBeginDrag(InventorySlotButton slot, PointerEventData eventData)
         {
-            var draggable = eventData.button == PointerEventData.InputButton.Left || eventData.button == PointerEventData.InputButton.Right;
+            var draggable = canDrag
+                            && (eventData.button == PointerEventData.InputButton.Left || eventData.button == PointerEventData.InputButton.Right);
             if (!draggable || InventoryDrag.IsActive || RootCanvas == null || !TryGetSlot(slot.SlotIndex, out var inventorySlot))
             {
                 // Cancels the drag: uGUI sends no OnDrag / OnEndDrag / OnDrop without a pointerDrag.
@@ -194,6 +201,7 @@ namespace InventorySystem.UI
             InventoryDrag.Begin(this, slot, slot.SlotIndex, amount, inventorySlot.Rotation);
             OnDragStarted(slot, inventorySlot, eventData);
             DragGhost.For(RootCanvas).MoveTo(eventData.position);
+            SlotDragStarted?.Invoke(this, slot.SlotIndex);
         }
 
         internal void OnSlotDrag(PointerEventData eventData)

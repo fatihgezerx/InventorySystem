@@ -6,17 +6,14 @@ namespace InventorySystem
 {
     /// <summary>
     /// Puts an item back into the world - e.g. when it is dropped out of the inventory UI. The object comes
-    /// from <see cref="SpawnOverride"/> if set (e.g. a pool), otherwise from <c>Instantiate</c>; it is then
-    /// placed, given its amount, and its <see cref="Collectible"/>'s On Release is invoked.
+    /// from <see cref="SpawnOverride"/> if set; otherwise, with PoolSystem in the project, from the pool its
+    /// prefab was compiled into (a PoolData entry, so it has a Poolable) once <c>PoolManager</c> is initialized;
+    /// otherwise from <c>Instantiate</c>. It is then placed, given its amount, and its
+    /// <see cref="Collectible"/>'s On Release is invoked.
     /// </summary>
     /// <remarks>
-    /// A UnityEvent can't hand back an object, so where dropped objects come from is the one thing wired
-    /// in code. Set it once from the code that already knows every system (e.g. the GameManager), so the
-    /// inventory itself never references the pool:
-    /// <code>
-    /// ItemSpawner.SpawnOverride = item =>
-    ///     item.Prefab.TryGetComponent&lt;Poolable&gt;(out var poolable) ? PoolManager.Get(poolable.PoolType) : null;
-    /// </code>
+    /// A pooled object goes back to its pool by itself when it is collected again (see <see cref="Collectible"/>).
+    /// <see cref="SpawnOverride"/> is for anything else, e.g. a pool of your own.
     /// </remarks>
     public static class ItemSpawner
     {
@@ -39,6 +36,12 @@ namespace InventorySystem
             }
 
             var instance = SpawnOverride?.Invoke(item);
+#if HAS_POOL_SYSTEM
+            if (instance == null && PoolSystem.PoolManager.TryGet(item.Prefab, out var pooled))
+            {
+                instance = pooled;
+            }
+#endif
             if (instance == null)
             {
                 instance = Object.Instantiate(item.Prefab);

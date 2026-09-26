@@ -12,11 +12,11 @@ namespace InventorySystem
     /// <c>Collect</c> - or turn on Collect On Trigger to pick it up on contact.
     /// </summary>
     /// <remarks>
-    /// What happens to the object itself is wired entirely from the Inspector, so the inventory never
-    /// needs to know about pooling: <b>On Take</b> fires once everything in it went into the inventory
-    /// (Compile wires <c>GameObject.SetActive(false)</c> by default; for a pooled object, wire
-    /// <c>Poolable &gt; ReleaseSelf</c> instead), and <b>On Release</b> fires on an object that was just
-    /// dropped from the inventory back into the world (see <see cref="ItemSpawner"/>).
+    /// <b>On Take</b> fires once everything in it went into the inventory (Compile wires
+    /// <c>GameObject.SetActive(false)</c> by default, so a taken object leaves the world), and <b>On Release</b>
+    /// fires on an object that was just dropped from the inventory back into the world (see
+    /// <see cref="ItemSpawner"/>). With PoolSystem in the project, an object taken from a pool (a dropped item)
+    /// also goes back to it once taken - don't wire <c>Poolable &gt; ReleaseSelf</c> as well.
     /// If the inventory can't take everything, the object keeps what's left (<see cref="Amount"/>) and
     /// <b>On Inventory Full</b> fires. The amount resets to the Inspector value every time the object is
     /// enabled, so pooled collectibles come back full.
@@ -96,6 +96,11 @@ namespace InventorySystem
             else
             {
                 onTake.Invoke();
+#if HAS_POOL_SYSTEM
+                // Taken from a pool (e.g. dropped from the inventory): back to it. An object placed in the scene
+                // isn't, and stays as On Take left it.
+                PoolSystem.PoolManager.TryRelease(gameObject);
+#endif
             }
 
             return added;

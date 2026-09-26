@@ -1,0 +1,378 @@
+#if HAS_INVENTORY_SYSTEM && HAS_UNIMVC && HAS_EVENT_SYSTEM && HAS_INPUT_SYSTEM
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.UI;
+
+namespace InventorySystem.UI
+{
+    /// <summary>
+    /// An item's 3D model on a <see cref="RawImage"/>: a copy of the item's prefab, rendered by a camera of its own
+    /// into a render texture, and turned by dragging on the image (through the EventSystem, so with the Input
+    /// System's UI module it is the Input System's pointer). Shown by an <see cref="InventoryDetailsPanel"/>.
+    /// </summary>
+    /// <remarks>
+    /// With PoolSystem in the project and the prefab in a pool, the model is taken from that pool - nothing is
+    /// instantiated - and, while shown, its scripts, colliders and physics are switched off; it is put back as it
+    /// was, and returned to the pool, when another item (or none) is shown. Otherwise a copy of the prefab is made
+    /// once per item, keeping only its meshes and renderers (none of its scripts, colliders or rigidbodies ever
+    /// run), and kept for the next time. Either way the model sits far from the scene on <see cref="layer"/>,
+    /// which only this camera draws. The camera renders only while a model is shown and the view is active, so a
+    /// closed inventory costs nothing.
+    /// </remarks>
+    [RequireComponent(typeof(RawImage))]
+    public sealed class InventoryExamineView : MonoBehaviour, IDragHandler
+    {
+        // Far from anything in a scene; each view gets its own spot.
+        private static readonly Vector3 RigOrigin = new(10000f, -10000f, 10000f);
+        private static readonly List<Component> Components = new();
+        private static int _rigCount;
+
+        [Tooltip("Width and height of the render texture, in pixels.")]
+        [Min(64)] [SerializeField] private int resolution = 1024;
+
+        [Tooltip("The layer the model is shown on. Only the examine camera draws it: pick one nothing else uses.")]
+        [Range(0, 31)] [SerializeField] private int layer = 31;
+
+        [Tooltip("Degrees the model turns per pixel dragged.")]
+        [Min(0f)] [SerializeField] private float rotateSpeed = 0.4f;
+
+        [Tooltip("How the model is turned when it is first shown.")]
+        [SerializeField] private Vector3 startRotation = new(15f, -30f, 0f);
+
+        [Range(5f, 90f)] [SerializeField] private float fieldOfView = 30f;
+
+        [Tooltip("Room around the model: 1 fits it exactly.")]
+        [Min(1f)] [SerializeField] private float framing = 1.2f;
+
+        [Tooltip("Behind the model. Transparent shows the image's own background through it.")]
+        [SerializeField] private Color background = new(0f, 0f, 0f, 0f);
+
+        [Min(0f)] [SerializeField] private float lightIntensity = 1.5f;
+
+        private RawImage _image;
+        private RenderTexture _texture;
+        private Transform _rig;
+        private Transform _pivot;
+        private Transform _holder;
+        private Camera _camera;
+        private Light _light;
+        private GameObject _model;
+        private bool _modelFromPool;
+        private ItemDefinition _item;
+
+        // Copies made when the prefab isn't pooled, by prefab, kept for the next time the item is shown.
+        private readonly Dictionary<GameObject, GameObject> _copies = new();
+
+        // What a model taken from a pool had switched on, and on which layers, to put back before returning it.
+        private readonly List<Behaviour> _stoppedBehaviours = new();
+        private readonly List<Collider> _stoppedColliders = new();
+        private readonly List<(Rigidbody body, bool kinematic, bool collisions)> _stoppedBodies = new();
+        private readonly List<(GameObject go, int layer)> _layers = new();
+
+        /// <summary>Shows <paramref name="item"/>'s model (or nothing, for null or an item without a prefab).</summary>
+        public void Show(ItemDefinition item)
+        {
+            if (item == _item)
+            {
+                return;
+            }
+
+            _item = item;
+            PutAwayModel();
+
+            if (item != null && item.Prefab != null)
+            {
+                EnsureRig();
+                _pivot.localRotation = Quaternion.identity;
+                _model = TakeModel(item.Prefab);
+                Frame(_model);
+                _pivot.localRotation = Quaternion.Euler(startRotation);
+            }
+
+            UpdateRendering();
+        }
+
+        public void OnDrag(PointerEventData eventData)
+        {
+            if (_model == null || eventData.button != PointerEventData.InputButton.Left)
+            {
+                return;
+            }
+
+            // The model follows the pointer: dragging right turns its front to the right, dragging up tips it up.
+            var delta = eventData.delta * rotateSpeed;
+            _pivot.Rotate(Vector3.up, -delta.x, Space.World);
+            _pivot.Rotate(_camera.transform.right, delta.y, Space.World);
+        }
+
+        private void OnEnable() => UpdateRendering();
+
+        private void OnDisable() => UpdateRendering();
+
+        private void OnDestroy()
+        {
+            PutAwayModel();
+            if (_rig != null)
+            {
+                Destroy(_rig.gameObject);
+            }
+
+            if (_texture != null)
+            {
+                _texture.Release();
+                Destroy(_texture);
+            }
+        }
+
+        // Renders (and shows the image) only while there is a model and the view is on screen.
+        private void UpdateRendering()
+        {
+            var showing = _model != null && isActiveAndEnabled;
+            if (_camera != null)
+            {
+                _camera.enabled = showing;
+            }
+
+            if (_image == null)
+            {
+                _image = GetComponent<RawImage>();
+            }
+
+            _image.enabled = showing;
+        }
+
+        private void EnsureRig()
+        {
+            if (_rig != null)
+            {
+                return;
+            }
+
+            _texture = new RenderTexture(resolution, resolution, 24) { name = "Inventory Examine", antiAliasing = 4 };
+            _image = GetComponent<RawImage>();
+            _image.texture = _texture;
+
+            _rig = new GameObject("Inventory Examine Rig").transform;
+            _rig.position = RigOrigin + Vector3.right * (100f * _rigCount++);
+
+            _pivot = new GameObject("Pivot").transform;
+            _pivot.SetParent(_rig, false);
+
+            // Copies are made in here, inactive, so nothing of them runs before they are stripped.
+            _holder = new GameObject("Holder").transform;
+            _holder.SetParent(_rig, false);
+            _holder.gameObject.SetActive(false);
+
+            _camera = new GameObject("Examine Camera").AddComponent<Camera>();
+            _camera.transform.SetParent(_rig, false);
+            _camera.clearFlags = CameraClearFlags.SolidColor;
+            _camera.backgroundColor = background;
+            _camera.cullingMask = 1 << layer;
+            _camera.fieldOfView = fieldOfView;
+            _camera.targetTexture = _texture;
+            _camera.enabled = false;
+
+            _light = new GameObject("Examine Light").AddComponent<Light>();
+            _light.transform.SetParent(_rig, false);
+            _light.type = LightType.Point;
+            _light.intensity = lightIntensity;
+        }
+
+        // From the prefab's pool when it has one (PoolSystem), otherwise the copy kept for it (made the first time).
+        private GameObject TakeModel(GameObject prefab)
+        {
+#if HAS_POOL_SYSTEM
+            if (PoolSystem.PoolManager.TryGet(prefab, out var pooled))
+            {
+                _modelFromPool = true;
+                Borrow(pooled);
+                return pooled;
+            }
+#endif
+            _modelFromPool = false;
+            if (!_copies.TryGetValue(prefab, out var copy) || copy == null)
+            {
+                copy = CreateModel(prefab);
+                _copies[prefab] = copy;
+            }
+
+            copy.transform.SetParent(_pivot, false);
+            copy.transform.localPosition = Vector3.zero;
+            copy.transform.localRotation = Quaternion.identity;
+            copy.SetActive(true);
+            return copy;
+        }
+
+        // The model shown goes: a pooled one put back as it was and returned, a kept copy hidden.
+        private void PutAwayModel()
+        {
+            var model = _model;
+            _model = null;
+            if (model == null)
+            {
+                return;
+            }
+
+            if (!_modelFromPool)
+            {
+                model.SetActive(false);
+                return;
+            }
+
+            GiveBack();
+#if HAS_POOL_SYSTEM
+            PoolSystem.PoolManager.TryRelease(model);
+#endif
+        }
+
+        // A pooled object shown as a model: nothing of it runs, collides or falls meanwhile, and it is on the
+        // examine layer under the pivot. What was switched on (and each object's layer) is noted, for GiveBack.
+        private void Borrow(GameObject model)
+        {
+            model.GetComponentsInChildren(true, Components);
+            foreach (var component in Components)
+            {
+                switch (component)
+                {
+                    case Behaviour behaviour when behaviour.enabled:
+                        behaviour.enabled = false;
+                        _stoppedBehaviours.Add(behaviour);
+                        break;
+                    case Collider collider when collider.enabled:
+                        collider.enabled = false;
+                        _stoppedColliders.Add(collider);
+                        break;
+                    case Rigidbody body:
+                        _stoppedBodies.Add((body, body.isKinematic, body.detectCollisions));
+                        body.isKinematic = true;
+                        body.detectCollisions = false;
+                        break;
+                    case Transform child:
+                        _layers.Add((child.gameObject, child.gameObject.layer));
+                        child.gameObject.layer = layer;
+                        break;
+                }
+            }
+
+            Components.Clear();
+            model.transform.SetParent(_pivot, false);
+            model.transform.localPosition = Vector3.zero;
+            model.transform.localRotation = Quaternion.identity;
+        }
+
+        // Puts a borrowed model back as it was before Borrow, ready for its pool.
+        private void GiveBack()
+        {
+            foreach (var (go, previous) in _layers)
+            {
+                if (go != null)
+                {
+                    go.layer = previous;
+                }
+            }
+
+            foreach (var (body, kinematic, collisions) in _stoppedBodies)
+            {
+                if (body != null)
+                {
+                    body.isKinematic = kinematic;
+                    body.detectCollisions = collisions;
+                }
+            }
+
+            foreach (var collider in _stoppedColliders)
+            {
+                if (collider != null)
+                {
+                    collider.enabled = true;
+                }
+            }
+
+            foreach (var behaviour in _stoppedBehaviours)
+            {
+                if (behaviour != null)
+                {
+                    behaviour.enabled = true;
+                }
+            }
+
+            _layers.Clear();
+            _stoppedBodies.Clear();
+            _stoppedColliders.Clear();
+            _stoppedBehaviours.Clear();
+        }
+
+        // A copy of the prefab with nothing but its meshes and renderers, on the examine layer.
+        private GameObject CreateModel(GameObject prefab)
+        {
+            var copy = Instantiate(prefab, _holder);
+            Strip(copy);
+
+            foreach (var child in copy.GetComponentsInChildren<Transform>(true))
+            {
+                child.gameObject.layer = layer;
+            }
+
+            copy.transform.SetParent(_pivot, false);
+            copy.transform.localPosition = Vector3.zero;
+            copy.transform.localRotation = Quaternion.identity;
+            return copy;
+        }
+
+        // Scripts go first (they are what requires other components), then everything but bodies and colliders,
+        // then those.
+        private static void Strip(GameObject copy)
+        {
+            for (var pass = 0; pass < 3; pass++)
+            {
+                copy.GetComponentsInChildren(true, Components);
+                foreach (var component in Components)
+                {
+                    if (component == null || component is Transform or MeshFilter or MeshRenderer or SkinnedMeshRenderer)
+                    {
+                        continue;
+                    }
+
+                    var script = component is MonoBehaviour;
+                    var body = component is Rigidbody or Rigidbody2D or Collider or Collider2D;
+                    if ((pass == 0 && script) || (pass == 1 && !body) || pass == 2)
+                    {
+                        DestroyImmediate(component);
+                    }
+                }
+            }
+
+            Components.Clear();
+        }
+
+        // Centers the model on the pivot and moves the camera back until it fits, whichever way it is turned.
+        private void Frame(GameObject model)
+        {
+            var renderers = model.GetComponentsInChildren<Renderer>(true);
+            if (renderers.Length == 0)
+            {
+                return;
+            }
+
+            var bounds = renderers[0].bounds;
+            for (var i = 1; i < renderers.Length; i++)
+            {
+                bounds.Encapsulate(renderers[i].bounds);
+            }
+
+            model.transform.position += _pivot.position - bounds.center;
+
+            var radius = Mathf.Max(bounds.extents.magnitude, 0.01f);
+            var distance = radius * framing / Mathf.Sin(fieldOfView * 0.5f * Mathf.Deg2Rad);
+            _camera.transform.localPosition = new Vector3(0f, 0f, -distance);
+            _camera.transform.localRotation = Quaternion.identity;
+            _camera.nearClipPlane = Mathf.Max(0.01f, distance - radius * 2f);
+            _camera.farClipPlane = distance + radius * 2f;
+
+            _light.transform.localPosition = new Vector3(radius, radius * 2f, -distance);
+            _light.range = distance * 3f;
+        }
+    }
+}
+#endif

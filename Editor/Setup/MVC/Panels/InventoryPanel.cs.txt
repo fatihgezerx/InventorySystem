@@ -11,7 +11,9 @@ namespace InventorySystem.UI
     /// The inventory window: shows the content panel that fits the inventory's mode (an
     /// <see cref="InventoryListPanel"/> for Unlimited / Weight / MaxSlot, an <see cref="InventoryGridPanel"/>
     /// for Grid), how full it is - "12.5 / 50" with a bar in Weight mode, "8 / 20" slots, or used / total
-    /// cells - and drops items dragged out of the UI into the world through <see cref="ItemSpawner"/>.
+    /// cells - and drops items dragged out of the UI into the world through <see cref="ItemSpawner"/>. With a
+    /// <see cref="InventoryDetailsPanel"/>, a click on an item - or the start of a drag - selects it and shows it
+    /// there.
     /// </summary>
     /// <remarks>
     /// By default it shows <see cref="InventoryManager.Main"/> and toggles with the project-wide "Inventory"
@@ -32,13 +34,22 @@ namespace InventorySystem.UI
         [Tooltip("Weight mode only: shown, and filled to total / max weight.")]
         [SerializeField] private GameObject weightBar;
 
+        [Tooltip("Set to total / max weight (0 - 1). Or leave it empty and use Weight Fill.")]
+        [SerializeField] private UnityEngine.UI.Slider weightSlider;
+
         [Tooltip("Stretched horizontally to total / max weight.")]
         [SerializeField] private RectTransform weightFill;
 
         [Tooltip("Grid mode only: shown. E.g. the Organize button.")]
         [SerializeField] private GameObject organizeButton;
 
+        [Tooltip("Shows the selected item. Optional.")]
+        [SerializeField] private InventoryDetailsPanel details;
+
         [Header("Behaviour")]
+        [Tooltip("A click on an item - or the start of a drag - selects it and shows it in Details.")]
+        [SerializeField] private bool selectOnClick = true;
+
         [SerializeField] private bool bindToMainInventory = true;
         [SerializeField] private bool startOpen;
         [SerializeField] private bool toggleWithInput = true;
@@ -58,7 +69,10 @@ namespace InventorySystem.UI
         [SerializeField] private string playerActionMap = "Player";
 
         [Header("Dropping into the world")]
-        [Tooltip("Items dragged out of the UI are dropped in front of the object with this tag.")]
+        [Tooltip("Items dragged out of the UI are dropped into the world. The Drop button drops either way.")]
+        [SerializeField] private bool dropOutside = true;
+
+        [Tooltip("Dropped items land in front of the object with this tag.")]
         [SerializeField] private string dropOriginTag = "Player";
 
         [Tooltip("Where dropped items land, in the origin's local space (x right, y up, z forward).")]
@@ -86,6 +100,21 @@ namespace InventorySystem.UI
         /// <summary>The content panel showing <see cref="Inventory"/>, or null.</summary>
         public InventoryContentPanel ActiveContent { get; private set; }
 
+        // The player works in it: the game (e.g. interaction) stands by while it is open.
+        protected override bool BlocksGameplayByDefault => true;
+
+        /// <summary>Whether an item is selected (shown in the Details panel).</summary>
+        public bool HasSelection => details != null && details.HasSelection;
+
+        /// <summary>The selection, or the selected item, changed (or was cleared).</summary>
+        public event System.Action SelectionChanged;
+
+        /// <summary>
+        /// The Use button was pressed on the selected item (inventory, slot index). Nothing is done with the item
+        /// here: listen to it to eat, equip, read... it.
+        /// </summary>
+        public event System.Action<Inventory, int> UseRequested;
+
         protected override void OnInitialize()
         {
             base.OnInitialize();
@@ -95,8 +124,16 @@ namespace InventorySystem.UI
                 if (content != null)
                 {
                     content.Initialize(UI);
-                    content.ItemDroppedOutside += DropIntoWorld;
+                    content.ItemDroppedOutside += OnItemDroppedOutside;
+                    content.SlotClicked += OnSlotClicked;
+                    content.SlotDragStarted += OnSlotDragStarted;
                 }
+            }
+
+            if (details != null)
+            {
+                details.Initialize(UI);
+                details.SelectionChanged += OnSelectionChanged;
             }
 
             if (bindToMainInventory)
@@ -136,6 +173,10 @@ namespace InventorySystem.UI
 
             Inventory = inventory;
             ActiveContent = null;
+            if (details != null)
+            {
+                details.Clear();
+            }
 
             foreach (var content in contents)
             {
@@ -198,9 +239,16 @@ namespace InventorySystem.UI
                 {
                     if (content != null)
                     {
-                        content.ItemDroppedOutside -= DropIntoWorld;
+                        content.ItemDroppedOutside -= OnItemDroppedOutside;
+                        content.SlotClicked -= OnSlotClicked;
+                        content.SlotDragStarted -= OnSlotDragStarted;
                     }
                 }
+            }
+
+            if (details != null)
+            {
+                details.SelectionChanged -= OnSelectionChanged;
             }
 
             if (_toggle != null)
@@ -319,12 +367,20 @@ namespace InventorySystem.UI
                 organizeButton.SetActive(showOrganize);
             }
 
-            if (showWeight && weightFill != null)
+            if (showWeight)
             {
                 var ratio = weight.MaxWeight > 0f ? Mathf.Clamp01(weight.TotalWeight / weight.MaxWeight) : 0f;
-                weightFill.anchorMin = Vector2.zero;
-                weightFill.anchorMax = new Vector2(ratio, 1f);
-                weightFill.offsetMin = weightFill.offsetMax = Vector2.zero;
+                if (weightSlider != null)
+                {
+                    weightSlider.SetValueWithoutNotify(Mathf.Lerp(weightSlider.minValue, weightSlider.maxValue, ratio));
+                }
+
+                if (weightFill != null)
+                {
+                    weightFill.anchorMin = Vector2.zero;
+                    weightFill.anchorMax = new Vector2(ratio, 1f);
+                    weightFill.offsetMin = weightFill.offsetMax = Vector2.zero;
+                }
             }
 
             if (capacityText == null)
@@ -354,12 +410,67 @@ namespace InventorySystem.UI
 
         #endregion
 
+        #region Selection
+
+        private void OnSlotClicked(InventoryContentPanel content, int slotIndex, UnityEngine.EventSystems.PointerEventData.InputButton button)
+        {
+            if (selectOnClick && details != null && button == UnityEngine.EventSystems.PointerEventData.InputButton.Left)
+            {
+                details.Select(content.Inventory, slotIndex);
+            }
+        }
+
+        // Picking an item up selects it too, as a click would: its details show while it is carried.
+        private void OnSlotDragStarted(InventoryContentPanel content, int slotIndex)
+        {
+            if (selectOnClick && details != null)
+            {
+                details.Select(content.Inventory, slotIndex);
+            }
+        }
+
+        private void OnSelectionChanged() => SelectionChanged?.Invoke();
+
+        /// <summary>Raises <see cref="UseRequested"/> for the selected item, e.g. for a Use button.</summary>
+        public void UseSelected()
+        {
+            if (HasSelection)
+            {
+                UseRequested?.Invoke(details.Inventory, details.SlotIndex);
+            }
+        }
+
+        /// <summary>Drops the selected item - the whole stack - into the world, e.g. for a Drop button.</summary>
+        public void DropSelected()
+        {
+            if (!HasSelection)
+            {
+                return;
+            }
+
+            var inventory = details.Inventory;
+            var slotIndex = details.SlotIndex;
+            if ((uint)slotIndex < (uint)inventory.SlotCount)
+            {
+                DropIntoWorld(inventory, slotIndex, inventory.Slots[slotIndex].Amount);
+            }
+        }
+
+        #endregion
+
         #region Dropping into the world
 
-        // A stackable item drops as one object carrying the whole amount; other items as one object each.
-        private void DropIntoWorld(InventoryContentPanel content, int slotIndex, int amount)
+        private void OnItemDroppedOutside(InventoryContentPanel content, int slotIndex, int amount)
         {
-            var inventory = content.Inventory;
+            if (dropOutside)
+            {
+                DropIntoWorld(content.Inventory, slotIndex, amount);
+            }
+        }
+
+        // A stackable item drops as one object carrying the whole amount; other items as one object each.
+        private void DropIntoWorld(Inventory inventory, int slotIndex, int amount)
+        {
             if (inventory == null || (uint)slotIndex >= (uint)inventory.SlotCount)
             {
                 return;

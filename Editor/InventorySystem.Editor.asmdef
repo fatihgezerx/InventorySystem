@@ -2,7 +2,8 @@
     "name": "InventorySystem.Editor",
     "rootNamespace": "InventorySystem",
     "references": [
-        "InventorySystem.Runtime"
+        "InventorySystem.Runtime",
+        "EasyUI.Editor"
     ],
     "includePlatforms": [
         "Editor"

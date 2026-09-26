@@ -82,6 +82,33 @@ namespace InventorySystem
     }
 
     /// <summary>
+    /// The "UI Settings" block of an <see cref="InventoryData"/>, shown while Easy UI and UniMVC are in the
+    /// project: the Easy UI panel the inventory UI is built from, and how that UI behaves. Read by the editor's
+    /// Build UI, which copies the behaviour onto the views it adds - so it changes nothing at runtime by itself.
+    /// </summary>
+    [Serializable]
+    public sealed class InventoryUISettings
+    {
+        // The Easy UI panel asset, by GUID: its type lives in an editor-only assembly, so it can't be referenced
+        // from this runtime asset (a build would pull it in with a missing script).
+        [SerializeField] private string panelGuid = string.Empty;
+
+        [Tooltip("Items can be dragged: moved, merged, split (right drag), swapped and carried to another window.")]
+        [SerializeField] private bool canDrag = true;
+
+        [Tooltip("Clicking an item - or starting to drag it - selects it and shows it in the Details (name, description, examine view).")]
+        [SerializeField] private bool canClick = true;
+
+        [Tooltip("An item dragged out of the UI is dropped into the world, in front of the player.")]
+        [SerializeField] private bool canDropToWorld = true;
+
+        public string PanelGuid => panelGuid;
+        public bool CanDrag => canDrag;
+        public bool CanClick => canClick;
+        public bool CanDropToWorld => canDropToWorld;
+    }
+
+    /// <summary>
     /// A named group of <see cref="ItemDefinition"/>s (e.g. "Weapons", "Consumables"). Purely
     /// organizational - grouping has no effect at runtime, it only keeps a large item list readable in
     /// the Inspector.
@@ -98,15 +125,17 @@ namespace InventorySystem
     }
 
     /// <summary>
-    /// Everything the inventory system needs: the inventory's capacity settings on top, every item the
-    /// game knows about below, organized in groups. Press "Compile" to generate the
-    /// <see cref="ItemTypes"/> enum and give every item's prefab a <see cref="Collectible"/>. At runtime,
-    /// hand this asset to <see cref="InventoryManager.Initialize"/>.
+    /// Everything the inventory system needs: the inventory's capacity settings on top, the UI it is shown
+    /// with (while Easy UI and UniMVC are in the project), and every item the game knows about below, organized
+    /// in groups. Press "Compile" to generate the <see cref="ItemTypes"/> enum and give every item's prefab a
+    /// <see cref="Collectible"/>. At runtime, hand this asset to <see cref="InventoryManager.Initialize"/>.
     /// </summary>
     [CreateAssetMenu(menuName = "Inventory System/Inventory Data", fileName = "NewInventoryData")]
     public sealed class InventoryData : ScriptableObject
     {
         [SerializeField] private InventorySettings settings = new();
+
+        [SerializeField] private InventoryUISettings ui = new();
 
         [SerializeField] private List<ItemGroup> groups = new() { new ItemGroup() };
 
@@ -115,6 +144,9 @@ namespace InventorySystem
 
         /// <summary>Capacity settings of the inventory <see cref="InventoryManager"/> creates.</summary>
         public InventorySettings Settings => settings;
+
+        /// <summary>The panel the inventory UI is built from, and how it behaves.</summary>
+        public InventoryUISettings UI => ui;
 
         /// <summary>Every group of items.</summary>
         public List<ItemGroup> Groups => groups;

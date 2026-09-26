@@ -3,7 +3,8 @@
     "rootNamespace": "InventorySystem",
     "references": [
         "EventSystem.Runtime",
-        "LocalizationSystem.Runtime"
+        "LocalizationSystem.Runtime",
+        "PoolSystem.Runtime"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

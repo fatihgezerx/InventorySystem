@@ -1,0 +1,176 @@
+#if HAS_INVENTORY_SYSTEM && HAS_UNIMVC && HAS_EVENT_SYSTEM && HAS_INPUT_SYSTEM
+using System;
+using TMPro;
+using UniMVC;
+using UnityEngine;
+using UnityEngine.UI;
+
+namespace InventorySystem.UI
+{
+    /// <summary>
+    /// The selected item: its name and description (translated with LocalizationSystem), its icon, and its 3D model
+    /// in an <see cref="InventoryExamineView"/>. The <see cref="InventoryPanel"/> it sits in selects an item when it
+    /// is clicked; the panel then follows that slot, and empties when the slot does. Every field is optional.
+    /// </summary>
+    public sealed class InventoryDetailsPanel : PanelViewBase
+    {
+        [SerializeField] private TMP_Text nameText;
+        [SerializeField] private TMP_Text descriptionText;
+        [SerializeField] private Image icon;
+        [SerializeField] private InventoryExamineView examine;
+
+        [Tooltip("Hide the whole panel while no item is selected.")]
+        [SerializeField] private bool hideWhenEmpty;
+
+        private Inventory _inventory;
+
+        /// <summary>The inventory of the selected item, or null.</summary>
+        public Inventory Inventory => _inventory;
+
+        /// <summary>The selected slot, or -1.</summary>
+        public int SlotIndex { get; private set; } = -1;
+
+        /// <summary>Whether an item is selected.</summary>
+        public bool HasSelection => _inventory != null && SlotIndex >= 0;
+
+        /// <summary>The selection, or the selected item, changed (or was cleared).</summary>
+        public event Action SelectionChanged;
+
+        protected override void OnInitialize()
+        {
+            base.OnInitialize();
+            Clear();
+        }
+
+        /// <summary>Shows the item in <paramref name="inventory"/>'s slot <paramref name="slotIndex"/>, and follows that slot.</summary>
+        public void Select(Inventory inventory, int slotIndex)
+        {
+            Listen(inventory);
+            SlotIndex = inventory != null ? slotIndex : -1;
+            Refresh();
+        }
+
+        /// <summary>Shows nothing.</summary>
+        public void Clear() => Select(null, -1);
+
+        private void OnDestroy() => Listen(null);
+
+        private void Listen(Inventory inventory)
+        {
+            if (ReferenceEquals(_inventory, inventory))
+            {
+                return;
+            }
+
+            if (_inventory != null)
+            {
+                _inventory.SlotChanged -= OnSlotChanged;
+                _inventory.LayoutChanged -= Clear;
+            }
+
+            _inventory = inventory;
+            if (_inventory != null)
+            {
+                _inventory.SlotChanged += OnSlotChanged;
+
+                // Grid resized: slot indices no longer mean what they did.
+                _inventory.LayoutChanged += Clear;
+            }
+        }
+
+        private void OnSlotChanged(int index)
+        {
+            if (index == SlotIndex)
+            {
+                Refresh();
+            }
+        }
+
+        private void Refresh()
+        {
+            var item = HasSelection && SlotIndex < _inventory.SlotCount && !_inventory.Slots[SlotIndex].IsEmpty
+                ? _inventory.Slots[SlotIndex].Item
+                : null;
+
+            // The slot was emptied (used, dropped, moved away): nothing is selected any more.
+            if (item == null && HasSelection)
+            {
+                Listen(null);
+                SlotIndex = -1;
+            }
+
+            if (nameText != null)
+            {
+                nameText.SetText(item != null ? Localized(item.DisplayName) : string.Empty);
+            }
+
+            if (descriptionText != null)
+            {
+                descriptionText.SetText(item != null ? Localized(item.Description) : string.Empty);
+            }
+
+            if (icon != null)
+            {
+                icon.sprite = item != null ? item.Icon : null;
+                icon.enabled = icon.sprite != null;
+            }
+
+            if (examine != null)
+            {
+                examine.Show(item);
+            }
+
+            if (hideWhenEmpty && IsVisible != (item != null))
+            {
+                SetVisible(item != null);
+            }
+
+            SelectionChanged?.Invoke();
+        }
+
+        private static string Localized(string text) =>
+#if HAS_LOCALIZATION_SYSTEM
+            LocalizationSystem.LocalizationRuntime.Get(text);
+#else
+            text;
+#endif
+
+#if UNITY_EDITOR && HAS_LOCALIZATION_SYSTEM
+        // These labels are filled by code, so LocalizationSystem's "Sync Project" must leave them alone: a
+        // LocalizedText on them would overwrite what the code shows. Keeps them marked with
+        // ExcludeFromLocalization - also on UIs built before LocalizationSystem was installed.
+        private void OnValidate()
+        {
+            UnityEditor.EditorApplication.delayCall += () =>
+            {
+                if (this == null || Application.isPlaying || UnityEditor.EditorUtility.IsPersistent(this))
+                {
+                    return;
+                }
+
+                ExcludeFromLocalization(nameText);
+                ExcludeFromLocalization(descriptionText);
+            };
+        }
+
+        private static void ExcludeFromLocalization(Component label)
+        {
+            if (label == null)
+            {
+                return;
+            }
+
+            if (!label.TryGetComponent<LocalizationSystem.ExcludeFromLocalization>(out _))
+            {
+                UnityEditor.Undo.AddComponent<LocalizationSystem.ExcludeFromLocalization>(label.gameObject);
+            }
+
+            if (label.TryGetComponent<LocalizationSystem.LocalizedText>(out var localizedText))
+            {
+                UnityEditor.Undo.DestroyObjectImmediate(localizedText);
+            }
+        }
+#endif
+    }
+}
+#endif

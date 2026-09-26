@@ -48,6 +48,8 @@ namespace InventorySystem.Setup
             Dependency.Repository("UniMVC", "UniMVC.Runtime", "HAS_UNIMVC", "https://github.com/fatihgezerx/UniMVC", "Assets/Scripts/MVC", "for the inventory UI"),
             Dependency.Package("Input System", "Unity.InputSystem", "HAS_INPUT_SYSTEM", "com.unity.inputsystem", "com.unity.inputsystem", "for the inventory UI (open / close key, rotate)"),
             Dependency.Repository("Localization System", "LocalizationSystem.Runtime", "HAS_LOCALIZATION_SYSTEM", "https://github.com/fatihgezerx/LocalizationSystem", "Assets/Scripts/LocalizationSystem", "for translating item names and descriptions"),
+            Dependency.Repository("Pool System", "PoolSystem.Runtime", "HAS_POOL_SYSTEM", "https://github.com/fatihgezerx/PoolSystem", "Assets/Scripts/PoolSystem", "for taking dropped and examined items from pools instead of instantiating them"),
+            Dependency.Repository("Easy UI", "EasyUI.Editor", "HAS_EASYUI", "https://github.com/fatihgezerx/EasyUI", "Assets/Scripts/EasyUI", "for building the inventory UI from an Easy UI panel"),
         };
 
         private static AddAndRemoveRequest _packageRequest;

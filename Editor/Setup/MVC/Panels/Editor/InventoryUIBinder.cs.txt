@@ -1,0 +1,731 @@
+#if HAS_INVENTORY_SYSTEM && HAS_UNIMVC && HAS_EVENT_SYSTEM && HAS_INPUT_SYSTEM && HAS_EASYUI
+using System.Collections.Generic;
+using System.Text;
+using EasyUI;
+using InventorySystem.UI;
+using TMPro;
+using UniMVC;
+using UnityEditor;
+using UnityEngine;
+using UnityEngine.InputSystem.UI;
+using UnityEngine.UI;
+using Object = UnityEngine.Object;
+
+namespace InventorySystem.UIEditor
+{
+    /// <summary>
+    /// The InventoryData Inspector's Build UI: builds its Easy UI panel into the scene's canvas and adds the
+    /// inventory's views to the elements marked with <see cref="InventoryRoles"/>, wired to each other.
+    /// </summary>
+    /// <remarks>
+    /// <list type="bullet">
+    /// <item>The panel is the window: its root gets the <see cref="InventoryPanel"/>, so it opens and closes whole.</item>
+    /// <item>Boxes follow from what is in them: the element holding the Tooltip Name (or Details) becomes the
+    /// tooltip; the one holding the Toast Message (or Icon) the toast template, and its parent the notifications,
+    /// taken out of the window so they show while the inventory is closed. Item Name, Description, Icon and
+    /// Examine View are shown by an <see cref="InventoryDetailsPanel"/> on an invisible object in the window.</item>
+    /// <item>The content panel matches the data's type: an <see cref="InventoryGridPanel"/> for Grid (cells made
+    /// right away from Columns x Rows, sized by the Slot Container's Grid Layout Group or the Cell Template),
+    /// otherwise an <see cref="InventoryListPanel"/> laid out by the Slot Container's Grid Layout Group.</item>
+    /// <item>Templates are hidden; a Slot Template without an icon or amount gets one.</item>
+    /// <item>UI SETTINGS' behaviour (Can Drag, Can Click, Can Drop To World) is copied onto the views.</item>
+    /// <item>The canvas gets a <see cref="UIManager"/> and an <see cref="InventoryController"/> if it has none,
+    /// and every new view is listed in the panel it sits in, or in the UIManager.</item>
+    /// <item>An earlier build of the same panel can be replaced, in one undo step.</item>
+    /// </list>
+    /// It lives in your MVC folder (not in <c>MVC/Editor/</c>, UniMVC's own editor assembly, which can't see your
+    /// views) and registers itself with <see cref="InventoryUIBuild"/> on every script reload.
+    /// </remarks>
+    internal static class InventoryUIBinder
+    {
+        private static readonly Color Transparent = new(0f, 0f, 0f, 0f);
+
+        [InitializeOnLoadMethod]
+        private static void Register() => InventoryUIBuild.Builder = Build;
+
+        private static GameObject Build(InventoryData data, EasyUIPanel panel)
+        {
+            var document = panel.Document;
+            var type = data.Settings.InventoryType;
+            var grid = type == InventoryType.Grid;
+
+            var missing = new StringBuilder();
+            foreach (var check in InventoryRoles.Checklist(type))
+            {
+                if (check.Need == InventoryRoles.Need.Required && !check.IsIn(document))
+                {
+                    missing.Append("\n- ").Append(check.Label);
+                }
+            }
+
+            if (missing.Length > 0)
+            {
+                EditorUtility.DisplayDialog("Build UI", $"\"{panel.name}\" has no element with these roles:{missing}\n\n" +
+                                                        "Mark them in Easy UI (Role, at the top of an element's inspector).", "OK");
+                return null;
+            }
+
+            var parent = EasyUIPanelBuilder.ParentFor(null);
+            var canvas = parent.GetComponentInParent<Canvas>(true).rootCanvas;
+
+            Undo.IncrementCurrentGroup();
+            Undo.SetCurrentGroupName("Build Inventory UI");
+
+            var existing = FindEarlierBuild(canvas, panel.name);
+            if (existing != null)
+            {
+                var choice = EditorUtility.DisplayDialogComplex("Build UI",
+                    $"\"{canvas.name}\" already has \"{panel.name}\" built. Replace it? Changes made to it in the scene are lost.",
+                    "Replace", "Cancel", "Keep Both");
+                if (choice == 1)
+                {
+                    return null;
+                }
+
+                if (choice == 0)
+                {
+                    Undo.DestroyObjectImmediate(existing);
+                    var notificationsObject = canvas.transform.Find(NotificationsName(panel.name));
+                    if (notificationsObject != null)
+                    {
+                        Undo.DestroyObjectImmediate(notificationsObject.gameObject);
+                    }
+                }
+            }
+
+            var ui = PrepareCanvas(canvas);
+            var built = new Dictionary<int, GameObject>();
+            var root = EasyUIPanelBuilder.Build(panel, (RectTransform)canvas.transform, built);
+            var roles = new RoleObjects(document, built);
+            var views = new List<ViewBase>();
+
+            // Content: the slots, and for grids the cells.
+            var slotObject = roles.Get(InventoryRoles.SlotTemplate);
+            var slot = BuildSlotTemplate(slotObject, roles.Inside(slotObject, InventoryRoles.ItemIcon), roles.Inside(slotObject, InventoryRoles.SlotAmount));
+            var container = roles.Get(InventoryRoles.SlotContainer);
+            InventoryContentPanel content = grid
+                ? BuildGrid(container, slot, roles.Get(InventoryRoles.CellTemplate), data.Settings)
+                : BuildList(container, slot);
+            new Fields(content).Bool("canDrag", data.UI.CanDrag).Apply();
+            views.Add(content);
+
+            // The panel itself is the window.
+            var window = root.AddComponent<InventoryPanel>();
+            views.Add(window);
+
+            var organize = AddButton<InventoryOrganizeButton>(roles.Get(InventoryRoles.OrganizeButton), views);
+            AddButton<InventoryCloseButton>(roles.Get(InventoryRoles.CloseButton), views);
+            var details = BuildDetails(roles, root, views);
+            AddButton<InventoryDropButton>(roles.Get(InventoryRoles.DropButton), views);
+            AddButton<InventoryUseButton>(roles.Get(InventoryRoles.UseButton), views);
+
+            // The weight bar is a Slider the player can't drag.
+            var weightObject = roles.Get(InventoryRoles.WeightBar);
+            var weight = weightObject != null ? weightObject.GetComponent<Slider>() : null;
+            if (weight != null)
+            {
+                weight.interactable = false;
+            }
+
+            new Fields(window)
+                .Objects("contents", content)
+                .Ref("capacityText", Label(roles.Get(InventoryRoles.CapacityText)))
+                .Ref("weightBar", weight != null ? weight.gameObject : null)
+                .Ref("weightSlider", weight)
+                .Ref("organizeButton", organize != null ? organize.gameObject : null)
+                .Ref("details", details)
+                .Bool("selectOnClick", data.UI.CanClick)
+                .Bool("dropOutside", data.UI.CanDropToWorld)
+                .Bool("blocksGameplay", true)
+                .Apply();
+
+            BuildTooltip(roles, root, views);
+            var notifications = BuildNotifications(roles, root, canvas, panel.name, views);
+
+            List(ui, views);
+            Undo.RegisterCreatedObjectUndo(root, "Build Inventory UI");
+            if (notifications != null)
+            {
+                Undo.RegisterCreatedObjectUndo(notifications, "Build Inventory UI");
+            }
+            Selection.activeGameObject = root;
+            Debug.Log($"[Inventory System] Built \"{panel.name}\" into \"{canvas.name}\" with {views.Count} views.", root);
+            return root;
+        }
+
+        #region Content
+
+        // The Slot Template becomes an InventorySlotButton, with an icon and an amount (made when the panel has none).
+        private static InventorySlotButton BuildSlotTemplate(GameObject go, GameObject iconObject, GameObject amountObject)
+        {
+            if (!go.TryGetComponent<Button>(out var button))
+            {
+                button = go.AddComponent<Button>();
+                button.targetGraphic = go.TryGetComponent<Graphic>(out var graphic) ? graphic : AddTransparentImage(go);
+            }
+
+            button.navigation = new Navigation { mode = Navigation.Mode.None };
+
+            var icon = iconObject != null ? iconObject.GetComponent<Image>() : null;
+            if (icon == null)
+            {
+                icon = NewChild("Icon", go.transform, 8f).AddComponent<Image>();
+                icon.preserveAspect = true;
+            }
+
+            icon.raycastTarget = false;
+
+            var amount = amountObject != null ? amountObject.GetComponent<TMP_Text>() : null;
+            if (amount == null)
+            {
+                amount = NewChild("Amount", go.transform, 5f).AddComponent<TextMeshProUGUI>();
+                amount.fontSize = 18f;
+                amount.fontStyle = FontStyles.Bold;
+                amount.alignment = TextAlignmentOptions.BottomRight;
+                amount.textWrappingMode = TextWrappingModes.NoWrap;
+            }
+
+            amount.raycastTarget = false;
+            amount.text = string.Empty;
+
+            // Designed inside the icon (in Easy UI a text can only lie over an image as its child): moved up to the
+            // slot, where it was, and drawn over the icon - so it doesn't turn with a rotated grid item's icon.
+            if (amount.transform.IsChildOf(icon.transform))
+            {
+                amount.transform.SetParent(go.transform, true);
+                amount.transform.SetAsLastSibling();
+            }
+
+            var slot = go.AddComponent<InventorySlotButton>();
+            new Fields(slot).Ref("icon", icon).Ref("amountText", amount).Apply();
+            go.SetActive(false);
+            return slot;
+        }
+
+        // Unlimited / Weight / Max Slot: slots laid out by the container's Grid Layout Group (made, or put in place of
+        // another layout group, when it has none), as many columns and visible rows as fit the container.
+        private static InventoryListPanel BuildList(GameObject go, InventorySlotButton slot)
+        {
+            var layout = go.GetComponent<GridLayoutGroup>();
+            if (layout == null)
+            {
+                var spacing = 6f;
+                if (go.TryGetComponent<HorizontalOrVerticalLayoutGroup>(out var line))
+                {
+                    spacing = line.spacing;
+                    Object.DestroyImmediate(line);
+                }
+
+                layout = go.AddComponent<GridLayoutGroup>();
+                layout.cellSize = ((RectTransform)slot.transform).rect.size;
+                layout.spacing = new Vector2(spacing, spacing);
+            }
+
+            var rect = (RectTransform)go.transform;
+            var pitch = layout.cellSize + layout.spacing;
+            var columns = layout.constraint == GridLayoutGroup.Constraint.FixedColumnCount
+                ? layout.constraintCount
+                : Mathf.Max(1, Mathf.FloorToInt((rect.rect.width - layout.padding.horizontal + layout.spacing.x) / Mathf.Max(pitch.x, 1f)));
+            var rows = Mathf.Max(1, Mathf.FloorToInt((rect.rect.height - layout.padding.vertical + layout.spacing.y) / Mathf.Max(pitch.y, 1f)));
+
+            // In a Scroll View, the Content grows with its slots so the view can scroll them.
+            var scroll = go.GetComponentInParent<ScrollRect>(true);
+            if (scroll != null && scroll.content == rect && !go.TryGetComponent<ContentSizeFitter>(out _))
+            {
+                go.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+            }
+
+            EnsureDropTarget(go);
+            var panel = go.AddComponent<InventoryListPanel>();
+            new Fields(panel)
+                .Ref("slotTemplate", slot)
+                .Ref("content", layout)
+                .Ref("layoutElement", go.GetComponent<LayoutElement>())
+                .Int("columns", columns)
+                .Int("maxVisibleRows", rows)
+                .Int("minimumVisibleSlots", columns * rows)
+                .Apply();
+            return panel;
+        }
+
+        // Grid: the panel places cells and items itself, so a Grid Layout Group on the container only gives the cell
+        // size and spacing, and goes. The cells are made now, from Columns x Rows, to be seen and styled in the scene.
+        private static InventoryGridPanel BuildGrid(GameObject go, InventorySlotButton item, GameObject cellObject, InventorySettings settings)
+        {
+            if (cellObject == null)
+            {
+                cellObject = CellFromSlot(go, item);
+            }
+
+            var cell = cellObject.GetComponent<Image>();
+            var cellSize = ((RectTransform)cellObject.transform).rect.width;
+            var spacing = 2f;
+            if (go.TryGetComponent<LayoutGroup>(out var layout))
+            {
+                if (layout is GridLayoutGroup gridLayout)
+                {
+                    cellSize = gridLayout.cellSize.x;
+                    spacing = gridLayout.spacing.x;
+                }
+                else if (layout is HorizontalOrVerticalLayoutGroup line)
+                {
+                    spacing = line.spacing;
+                }
+
+                Object.DestroyImmediate(layout);
+            }
+
+            var cells = NewChild("Cells", go.transform, 0f);
+            var items = NewChild("Items", go.transform, 0f);
+            var preview = NewChild("Preview", go.transform, 0f);
+            cellObject.SetActive(false);
+
+            EnsureDropTarget(go);
+
+            // The panel sets this Layout Element's preferred size to the whole grid: a Content Size Fitter on the
+            // container (or a layout group around it) then sizes it to the grid - with the layout group gone there
+            // is nothing else to measure, and it would shrink to nothing, missing the drops on empty cells.
+            if (!go.TryGetComponent<LayoutElement>(out var gridSize))
+            {
+                gridSize = go.AddComponent<LayoutElement>();
+            }
+
+            var panel = go.AddComponent<InventoryGridPanel>();
+            new Fields(panel)
+                .Ref("cellLayer", cells.transform)
+                .Ref("itemLayer", items.transform)
+                .Ref("previewLayer", preview.transform)
+                .Ref("cellTemplate", cell)
+                .Ref("itemTemplate", item)
+                .Ref("layoutElement", gridSize)
+                .Float("cellSize", Mathf.Max(8f, cellSize))
+                .Float("cellSpacing", Mathf.Max(0f, spacing))
+                .Apply();
+
+            panel.LayoutGrid(settings.Columns, settings.Rows);
+            for (var i = 0; i < cells.transform.childCount; i++)
+            {
+                cells.transform.GetChild(i).name = $"Cell ({i % settings.Columns}, {i / settings.Columns})";
+            }
+
+            return panel;
+        }
+
+        // No Cell Template: one made from the Slot Template's look - its own Image, without its icon or amount - at
+        // its size (a faint square when the slot has no visible Image).
+        private static GameObject CellFromSlot(GameObject container, InventorySlotButton slot)
+        {
+            var cell = new GameObject("Cell Template", typeof(RectTransform), typeof(Image)) { layer = container.layer };
+            var rect = (RectTransform)cell.transform;
+            rect.SetParent(container.transform, false);
+            rect.sizeDelta = ((RectTransform)slot.transform).rect.size;
+
+            var image = cell.GetComponent<Image>();
+            image.raycastTarget = false;
+            if (slot.TryGetComponent<Image>(out var look) && look.color.a > 0.01f)
+            {
+                image.sprite = look.sprite;
+                image.type = look.type;
+                image.color = look.color;
+                image.pixelsPerUnitMultiplier = look.pixelsPerUnitMultiplier;
+            }
+            else
+            {
+                image.color = new Color(1f, 1f, 1f, 0.1f);
+            }
+
+            return cell;
+        }
+
+        #endregion
+
+        #region Details, tooltip, notifications
+
+        // On an invisible object in the window, when anything shows the selected item (Item Name, Description,
+        // Examine View, an Item Icon that isn't a slot's or a notification's) - wherever those are in the panel.
+        private static InventoryDetailsPanel BuildDetails(RoleObjects roles, GameObject window, List<ViewBase> views)
+        {
+            var icon = roles.SelectedItemIcon();
+            var needed = icon != null || roles.Get(InventoryRoles.DetailsName) != null
+                         || roles.Get(InventoryRoles.DetailsDescription) != null || roles.Get(InventoryRoles.ExamineView) != null;
+            if (!needed)
+            {
+                return null;
+            }
+
+            var panel = NewChild("Details", window.transform, 0f).AddComponent<InventoryDetailsPanel>();
+            views.Add(panel);
+
+            var examineImage = roles.Get(InventoryRoles.ExamineView);
+            var examine = examineImage != null ? examineImage.AddComponent<InventoryExamineView>() : null;
+
+            new Fields(panel)
+                .Ref("nameText", Label(roles.Get(InventoryRoles.DetailsName)))
+                .Ref("descriptionText", Label(roles.Get(InventoryRoles.DetailsDescription)))
+                .Ref("icon", icon != null ? icon.GetComponent<Image>() : null)
+                .Ref("examine", examine)
+                .Apply();
+            return panel;
+        }
+
+        // The element holding the Tooltip Name (or Details) is the tooltip: it follows the pointer, never in its
+        // way. Its texts must not be straight in the window, which would make the window the tooltip.
+        private static void BuildTooltip(RoleObjects roles, GameObject window, List<ViewBase> views)
+        {
+            var nameObject = roles.Get(InventoryRoles.TooltipName);
+            var detailsObject = roles.Get(InventoryRoles.TooltipDetails);
+            var text = nameObject != null ? nameObject : detailsObject;
+            if (text == null)
+            {
+                return;
+            }
+
+            var go = text.transform.parent.gameObject;
+            if (go == window)
+            {
+                Debug.LogWarning("[Inventory System] The Tooltip Name is straight in the panel: put it (and the Tooltip Details) " +
+                                 "in a box of their own - that box becomes the tooltip. No tooltip was made.", text);
+                return;
+            }
+
+            var tooltip = go.AddComponent<InventoryTooltipPanel>();
+            var group = tooltip.GetComponent<CanvasGroup>();
+            group.blocksRaycasts = false;
+            group.interactable = false;
+            views.Add(tooltip);
+
+            var nameText = Label(nameObject) ?? go.GetComponentInChildren<TMP_Text>(true);
+            new Fields(tooltip)
+                .Ref("nameText", nameText)
+                .Ref("detailText", Label(detailsObject))
+                .Apply();
+            go.SetActive(false);
+        }
+
+        // The element holding the Toast Message is the toast template, copied for every notification (an Item Icon
+        // in it shows the item); its parent stacks them. That parent is taken out of the window to the canvas, so
+        // notifications show while the inventory is closed; it is named after the panel, for Build UI to find it
+        // again. Returns it.
+        private static GameObject BuildNotifications(RoleObjects roles, GameObject window, Canvas canvas, string panelName,
+            List<ViewBase> views)
+        {
+            var messageObject = roles.Get(InventoryRoles.ToastMessage);
+            if (messageObject == null)
+            {
+                return null;
+            }
+
+            var template = messageObject.transform.parent.gameObject;
+            if (template == window)
+            {
+                Debug.LogWarning("[Inventory System] The Toast Message is straight in the panel: put it (and an Item Icon, if you " +
+                                 "like) in a box of their own, inside another box that stacks them. No notifications were made.", messageObject);
+                return null;
+            }
+
+            var iconObject = roles.Inside(template, InventoryRoles.ItemIcon);
+
+            var container = template.transform.parent;
+            if (container.gameObject == window)
+            {
+                // The toast sits straight in the window: a container of its own, over the same area.
+                var own = NewChild(NotificationsName(panelName), window.transform, 0f);
+                template.transform.SetParent(own.transform, true);
+                container = own.transform;
+            }
+
+            container.SetParent(canvas.transform, true);
+            container.name = NotificationsName(panelName);
+            if (!container.TryGetComponent<LayoutGroup>(out _))
+            {
+                var stack = container.gameObject.AddComponent<VerticalLayoutGroup>();
+                stack.spacing = 6f;
+                stack.childAlignment = TextAnchor.LowerLeft;
+                stack.childControlWidth = stack.childControlHeight = false;
+                stack.childForceExpandWidth = stack.childForceExpandHeight = false;
+            }
+
+            var notifications = container.gameObject.AddComponent<InventoryNotificationPanel>();
+            views.Add(notifications);
+
+            var toast = template.AddComponent<InventoryToastPanel>();
+            toast.GetComponent<CanvasGroup>().blocksRaycasts = false;
+
+            var icon = iconObject != null ? iconObject.GetComponent<Image>() : null;
+            if (icon == null)
+            {
+                icon = NewChild("Icon", template.transform, 6f).AddComponent<Image>();
+                icon.preserveAspect = true;
+                icon.enabled = false;
+            }
+
+            var message = Label(messageObject);
+
+            new Fields(toast).Ref("icon", icon).Ref("message", message).Apply();
+            new Fields(notifications)
+                .Ref("toastTemplate", toast)
+                .Ref("container", container)
+                .Apply();
+            template.SetActive(false);
+            return container.gameObject;
+        }
+
+        private static string NotificationsName(string panelName) => panelName + " Notifications";
+
+        #endregion
+
+        #region Canvas and views
+
+        // A root object of the canvas with this name holding an InventoryPanel: what Build UI made before.
+        private static GameObject FindEarlierBuild(Canvas canvas, string name)
+        {
+            foreach (Transform child in canvas.transform)
+            {
+                if (child.name == name && child.GetComponentInChildren<InventoryPanel>(true) != null)
+                {
+                    return child.gameObject;
+                }
+            }
+
+            return null;
+        }
+
+        // The canvas's UIManager and InventoryController (added if missing), and an EventSystem in the scene.
+        private static UIManager PrepareCanvas(Canvas canvas)
+        {
+            var go = canvas.gameObject;
+            if (!go.TryGetComponent<UIManager>(out var ui))
+            {
+                ui = Undo.AddComponent<UIManager>(go);
+                Debug.Log($"[Inventory System] Added a UIManager to '{canvas.name}'.", canvas);
+            }
+
+            // The inventory's events reach the UI through this controller, on the always-active UIManager object.
+            if (!go.TryGetComponent<InventoryController>(out var controller))
+            {
+                controller = Undo.AddComponent<InventoryController>(go);
+            }
+
+            Undo.RecordObject(ui, "Build Inventory UI");
+            ui.AddController(controller);
+            PruneMissingViews(ui);
+
+            if (Object.FindFirstObjectByType<UnityEngine.EventSystems.EventSystem>() == null)
+            {
+                var eventSystem = new GameObject("EventSystem", typeof(UnityEngine.EventSystems.EventSystem), typeof(InputSystemUIInputModule));
+                Undo.RegisterCreatedObjectUndo(eventSystem, "Create EventSystem");
+            }
+
+            return ui;
+        }
+
+        // A replaced build leaves empty entries in the UIManager's lists.
+        private static void PruneMissingViews(UIManager ui)
+        {
+            var so = new SerializedObject(ui);
+            var views = so.FindProperty("views");
+            foreach (var list in new[] { "panels", "popups", "buttons", "toggles", "sliders", "dropdowns", "texts", "images" })
+            {
+                var array = views.FindPropertyRelative(list);
+                for (var i = array.arraySize - 1; i >= 0; i--)
+                {
+                    if (array.GetArrayElementAtIndex(i).objectReferenceValue == null)
+                    {
+                        array.DeleteArrayElementAtIndex(i);
+                    }
+                }
+            }
+
+            so.ApplyModifiedProperties();
+        }
+
+        // Every new view goes in the list of the panel it sits in, or of the UIManager when it is in none.
+        private static void List(UIManager ui, List<ViewBase> views)
+        {
+            foreach (var view in views)
+            {
+                var parent = view.transform.parent;
+                var owner = parent != null ? parent.GetComponentInParent<PanelViewBase>(true) : null;
+                if (owner != null)
+                {
+                    owner.ChildViews.Add(view);
+                    EditorUtility.SetDirty(owner);
+                }
+                else
+                {
+                    ui.Views.Add(view);
+                }
+            }
+
+            EditorUtility.SetDirty(ui);
+        }
+
+        #endregion
+
+        #region Helpers
+
+        private static T AddButton<T>(GameObject go, List<ViewBase> views) where T : ButtonViewBase
+        {
+            if (go == null)
+            {
+                return null;
+            }
+
+            if (!go.TryGetComponent<Button>(out _))
+            {
+                Debug.LogWarning($"[Inventory System] '{go.name}' has no Button, so it can't be a {typeof(T).Name}.", go);
+                return null;
+            }
+
+            var button = go.AddComponent<T>();
+            views.Add(button);
+            return button;
+        }
+
+        private static TMP_Text Label(GameObject go)
+        {
+            if (go == null || !go.TryGetComponent<TMP_Text>(out var text))
+            {
+                return null;
+            }
+
+            text.raycastTarget = false;
+            return text;
+        }
+
+        private static Image AddTransparentImage(GameObject go)
+        {
+            var image = go.AddComponent<Image>();
+            image.color = Transparent;
+            return image;
+        }
+
+        // Drops between slots (or on empty grid cells) land on the content panel itself, so it needs a raycast target.
+        private static void EnsureDropTarget(GameObject go)
+        {
+            if (!go.TryGetComponent<Graphic>(out _))
+            {
+                AddTransparentImage(go);
+            }
+        }
+
+        // A child stretched over its parent, `inset` in from every edge.
+        private static GameObject NewChild(string name, Transform parent, float inset)
+        {
+            var go = new GameObject(name, typeof(RectTransform)) { layer = parent.gameObject.layer };
+            var rect = (RectTransform)go.transform;
+            rect.SetParent(parent, false);
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = Vector2.one;
+            rect.offsetMin = new Vector2(inset, inset);
+            rect.offsetMax = new Vector2(-inset, -inset);
+            return go;
+        }
+
+        // The built object of each role of the panel.
+        private sealed class RoleObjects
+        {
+            private readonly EasyUIDocument _document;
+            private readonly Dictionary<int, GameObject> _built;
+
+            public RoleObjects(EasyUIDocument document, Dictionary<int, GameObject> built)
+            {
+                _document = document;
+                _built = built;
+            }
+
+            /// <summary>The object of the element with <paramref name="role"/>, or null.</summary>
+            public GameObject Get(string role)
+            {
+                var node = EasyUIRoles.FindNode(_document, role);
+                return node != null && _built.TryGetValue(node.id, out var go) ? go : null;
+            }
+
+            /// <summary>The (first) object with <paramref name="role"/> that is <paramref name="root"/> or inside it, or null.</summary>
+            public GameObject Inside(GameObject root, string role)
+            {
+                if (root == null)
+                {
+                    return null;
+                }
+
+                EasyUIRoles.FindNodes(_document, role, _nodes);
+                foreach (var node in _nodes)
+                {
+                    if (_built.TryGetValue(node.id, out var go) && go.transform.IsChildOf(root.transform))
+                    {
+                        return go;
+                    }
+                }
+
+                return null;
+            }
+
+            /// <summary>The Item Icon that shows the selected item (not a slot's, nor a notification's), or null.</summary>
+            public GameObject SelectedItemIcon()
+            {
+                EasyUIRoles.FindNodes(_document, InventoryRoles.ItemIcon, _nodes);
+                foreach (var node in _nodes)
+                {
+                    if (InventoryRoles.IsSelectedItemIcon(_document, node) && _built.TryGetValue(node.id, out var go))
+                    {
+                        return go;
+                    }
+                }
+
+                return null;
+            }
+
+            private readonly List<EasyUINode> _nodes = new();
+        }
+
+        // Sets a component's serialized fields, then applies them once.
+        private readonly struct Fields
+        {
+            private readonly SerializedObject _object;
+
+            public Fields(Object target) => _object = new SerializedObject(target);
+
+            public Fields Ref(string field, Object value)
+            {
+                _object.FindProperty(field).objectReferenceValue = value;
+                return this;
+            }
+
+            public Fields Objects(string field, params Object[] values)
+            {
+                var array = _object.FindProperty(field);
+                array.arraySize = values.Length;
+                for (var i = 0; i < values.Length; i++)
+                {
+                    array.GetArrayElementAtIndex(i).objectReferenceValue = values[i];
+                }
+
+                return this;
+            }
+
+            public Fields Bool(string field, bool value)
+            {
+                _object.FindProperty(field).boolValue = value;
+                return this;
+            }
+
+            public Fields Int(string field, int value)
+            {
+                _object.FindProperty(field).intValue = value;
+                return this;
+            }
+
+            public Fields Float(string field, float value)
+            {
+                _object.FindProperty(field).floatValue = value;
+                return this;
+            }
+
+            public void Apply() => _object.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        #endregion
+    }
+}
+#endif
