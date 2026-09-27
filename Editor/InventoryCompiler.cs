@@ -16,8 +16,8 @@ namespace InventorySystem
     /// type - prefabs already up to date are skipped, not re-saved. A newly added Collectible's On Take
     /// is wired to <c>GameObject.SetActive(false)</c>, so a taken object leaves the world by default;
     /// swap it for e.g. <c>Poolable &gt; ReleaseSelf</c> in the Inspector,</item>
-    /// <item>regenerates <c>ItemTypes.cs</c>, only if its content actually changed, so compiling without
-    /// renaming anything never triggers a script reload.</item>
+    /// <item>regenerates <c>ItemTypes.cs</c> (the items) and <c>ItemGroups.cs</c> (the groups), only if their content
+    /// actually changed, so compiling without renaming anything never triggers a script reload.</item>
     /// </list>
     /// </summary>
     /// <remarks>
@@ -27,7 +27,7 @@ namespace InventorySystem
     /// </remarks>
     internal static class InventoryCompiler
     {
-        private const string DefaultGeneratedPath = "Assets/Scripts/InventorySystem/Runtime/Generated/ItemTypes.cs";
+        private const string GeneratedFolder = "Assets/Scripts/InventorySystem/Runtime/Generated/";
 
         public static void Compile(InventoryData data)
         {
@@ -35,6 +35,32 @@ namespace InventorySystem
             if (data.EnsureUniqueIds())
             {
                 EditorUtility.SetDirty(data);
+            }
+
+            var groupMembers = new List<KeyValuePair<string, int>>();
+            var groupNames = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var group in data.Groups)
+            {
+                if (group == null)
+                {
+                    continue;
+                }
+
+                var groupName = ToIdentifier(group.Header);
+                if (groupName == null || groupName == nameof(ItemGroups.None) || !groupNames.Add(groupName))
+                {
+                    Debug.LogError($"[InventoryData] The group '{group.Header}' has an empty, reserved ('None') or repeated name. " +
+                                    "Every group needs a unique name - it becomes its ItemGroups member. Compile aborted.", data);
+                    return;
+                }
+
+                groupMembers.Add(new KeyValuePair<string, int>(groupName, group.Id));
+            }
+
+            if (groupMembers.Count == 0)
+            {
+                Debug.LogError("[InventoryData] There is no item group. Add one first. Compile aborted.", data);
+                return;
             }
 
             var members = new List<KeyValuePair<string, int>>();
@@ -130,28 +156,44 @@ namespace InventorySystem
 
             AssetDatabase.SaveAssets();
 
-            var enumChanged = WriteEnumSource(members, out var generatedPath);
-            if (enumChanged)
+            var typesChanged = WriteEnum("ItemTypes", members, "item", out var typesPath);
+            var groupsChanged = WriteEnum("ItemGroups", groupMembers, "group", out var groupsPath);
+            if (typesChanged)
             {
-                AssetDatabase.ImportAsset(generatedPath);
+                AssetDatabase.ImportAsset(typesPath);
             }
 
-            Debug.Log($"[InventoryData] Compile finished: {members.Count} item(s), {updated} prefab(s) updated, " +
-                      $"{upToDate} already up to date." + (enumChanged ? " ItemTypes regenerated; scripts are recompiling." : string.Empty));
+            if (groupsChanged)
+            {
+                AssetDatabase.ImportAsset(groupsPath);
+            }
+
+            // With several groups, a popup script per group (none with a single one).
+            var scriptsChanged = InventoryGroupScripts.Sync(groupMembers, out var popupsWritten, out var popupsDeleted);
+
+#if HAS_EASYUI
+            // The roles of the groups' popups and tab buttons follow the groups.
+            EasyUI.EasyUIRoles.Invalidate();
+#endif
+
+            Debug.Log($"[InventoryData] Compile finished: {groupMembers.Count} group(s), {members.Count} item(s), {updated} prefab(s) updated, " +
+                      $"{upToDate} already up to date" + (popupsWritten + popupsDeleted > 0 ? $", {popupsWritten} popup script(s) written, {popupsDeleted} deleted." : ".") +
+                      (typesChanged || groupsChanged || scriptsChanged ? " Scripts are recompiling." : string.Empty));
         }
 
-        /// <summary>Writes ItemTypes.cs; returns false (and writes nothing) if it already has this content.</summary>
-        private static bool WriteEnumSource(List<KeyValuePair<string, int>> members, out string assetPath)
+        /// <summary>Writes <c>{enumName}.cs</c>; returns false (and writes nothing) if it already has this content.</summary>
+        /// <param name="what">"item" or "group": what every value is the stable id of.</param>
+        private static bool WriteEnum(string enumName, List<KeyValuePair<string, int>> members, string what, out string assetPath)
         {
             var sb = new StringBuilder();
             sb.AppendLine("// <auto-generated>");
             sb.AppendLine("// Generated by InventoryData > Compile. Do not edit by hand - it is overwritten every time an");
-            sb.AppendLine("// InventoryData asset is compiled. Every value is the item's stable id, so reordering or removing");
-            sb.AppendLine("// items never shifts the value of an ItemTypes already saved in a scene or prefab.");
+            sb.AppendLine($"// InventoryData asset is compiled. Every value is the {what}'s stable id, so reordering or removing");
+            sb.AppendLine($"// {what}s never shifts the value of an {enumName} already saved in a scene or prefab.");
             sb.AppendLine("// </auto-generated>");
             sb.AppendLine("namespace InventorySystem");
             sb.AppendLine("{");
-            sb.AppendLine("    public enum ItemTypes");
+            sb.AppendLine($"    public enum {enumName}");
             sb.AppendLine("    {");
             sb.AppendLine("        None = 0,");
             foreach (var member in members)
@@ -161,7 +203,7 @@ namespace InventorySystem
             sb.AppendLine("    }");
             sb.AppendLine("}");
 
-            assetPath = FindGeneratedPath();
+            assetPath = FindGeneratedPath(enumName);
             var fullPath = Path.Combine(Directory.GetParent(Application.dataPath)!.FullName,
                 assetPath.Replace('/', Path.DirectorySeparatorChar));
 
@@ -176,19 +218,19 @@ namespace InventorySystem
             return true;
         }
 
-        // Follows ItemTypes.cs if the InventorySystem folder was moved; falls back to the default location.
-        private static string FindGeneratedPath()
+        // Follows the file if the InventorySystem folder was moved; falls back to the default location.
+        private static string FindGeneratedPath(string enumName)
         {
-            foreach (var guid in AssetDatabase.FindAssets("ItemTypes t:MonoScript"))
+            foreach (var guid in AssetDatabase.FindAssets(enumName + " t:MonoScript"))
             {
                 var path = AssetDatabase.GUIDToAssetPath(guid);
-                if (path.EndsWith("/Generated/ItemTypes.cs", StringComparison.Ordinal))
+                if (path.EndsWith("/Generated/" + enumName + ".cs", StringComparison.Ordinal))
                 {
                     return path;
                 }
             }
 
-            return DefaultGeneratedPath;
+            return GeneratedFolder + enumName + ".cs";
         }
 
         private static string NormalizeNewlines(string text) => text.Replace("\r\n", "\n");

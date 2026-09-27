@@ -64,7 +64,7 @@ namespace InventorySystem
 
         private void OnEnable() => _remaining = amount;
 
-        /// <summary>Puts as much as fits into the main inventory. For UnityEvents (e.g. an Interactable's On Interact).</summary>
+        /// <summary>Puts as much as fits into the inventory of the item's group. For UnityEvents (e.g. an Interactable's On Interact).</summary>
         public void Collect()
         {
             if (!InventoryManager.IsInitialized)
@@ -73,7 +73,7 @@ namespace InventorySystem
                 return;
             }
 
-            CollectInto(InventoryManager.Main);
+            CollectInto(InventoryManager.GetInventoryOf(itemType));
         }
 
         /// <summary>Puts as much as fits into <paramref name="inventory"/> and returns how many went in.</summary>

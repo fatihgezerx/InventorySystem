@@ -1,5 +1,8 @@
 #if HAS_INVENTORY_SYSTEM && HAS_UNIMVC && HAS_EVENT_SYSTEM && HAS_INPUT_SYSTEM
 using System.Collections.Generic;
+#if HAS_DOTWEEN
+using DG.Tweening;
+#endif
 using UniMVC;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -11,9 +14,11 @@ namespace InventorySystem.UI
     /// <summary>
     /// Shows a <see cref="GridInventory"/> like a Resident Evil 4 attaché case: a background cell per grid
     /// cell, and one <see cref="InventorySlotButton"/> per placed item, sized to its rectangle with its icon
-    /// turned by its rotation. While an item is dragged, the rectangle it would land on is tinted green
-    /// (fits) or red (doesn't), and the rotate input (R by default) turns it. Drop it on free cells to move
-    /// it, or on a stack of the same item to merge. <see cref="Organize"/> packs everything tightly.
+    /// turned by its rotation. A dragged item is the slot itself, held freely by the pointer over everything else;
+    /// the rectangle it would land on is tinted green (fits) or red (doesn't), and the rotate input (R by default)
+    /// turns it. Drop it on free cells to move it, or on a stack of the same item to merge: it then glides into its
+    /// cell - or back to where it was - with DOTween (at once without it). <see cref="Organize"/> packs everything
+    /// tightly.
     /// </summary>
     /// <remarks>
     /// The background cells can be placed under Cell Layer in the editor, so the grid can be seen and styled
@@ -47,6 +52,12 @@ namespace InventorySystem.UI
         [SerializeField] private Color validColor = new(0.3f, 0.9f, 0.4f, 0.35f);
         [SerializeField] private Color invalidColor = new(0.95f, 0.3f, 0.3f, 0.35f);
 
+        [Tooltip("Seconds a released item takes to glide into its cell, or back. 0: it jumps. Needs DOTween.")]
+        [Min(0f)] [SerializeField] private float settleDuration = 0.12f;
+
+        [Tooltip("The easing curve of that glide.")]
+        [SerializeField] private AnimationEase settleEase = AnimationEase.OutBack;
+
         [Tooltip("Turns the dragged item. Empty: the project-wide action \"RotateItem\" if there is one, otherwise R.")]
         [SerializeField] private InputActionReference rotateAction;
 
@@ -58,6 +69,9 @@ namespace InventorySystem.UI
         private InputAction _rotate;
         private bool _ownsRotate;
         private Vector2 _lastPointer;
+
+        // The item slot the pointer holds, free over the grid; null when nothing is dragged.
+        private InventorySlotButton _lifted;
 
         private GridInventory Grid => Inventory as GridInventory;
 
@@ -199,17 +213,43 @@ namespace InventorySystem.UI
 
             var item = _items[index];
             var slot = grid.Slots[index];
+
+            // The item held by the pointer comes down when its drop was handled, or its stack is gone; a change
+            // of its amount while it is held only redraws the amount.
+            var landing = _lifted == item && (slot.IsEmpty || InventoryDrag.Handled || InventoryDrag.SourcePanel != this);
+            if (_lifted == item && !landing)
+            {
+                item.Show(slot);
+                return;
+            }
+
+            if (landing)
+            {
+                _lifted = null;
+            }
+
             if (slot.IsEmpty)
             {
+                EndFlight(item);
                 item.gameObject.SetActive(false);
                 return;
             }
 
-            item.RectTransform.anchoredPosition = CellPosition(slot.Position);
-            item.RectTransform.sizeDelta = Footprint(slot.Size);
+            var position = CellPosition(slot.Position);
+            var size = Footprint(slot.Size);
             item.SetIconRotation(slot.Rotation, IconSize(slot.Item));
             item.Show(slot);
             item.gameObject.SetActive(true);
+
+            if (landing)
+            {
+                Settle(item, position, size);
+                return;
+            }
+
+            EndFlight(item);
+            item.RectTransform.anchoredPosition = position;
+            item.RectTransform.sizeDelta = size;
         }
 
         protected override void OnSlotCountChanged(int count)
@@ -231,17 +271,47 @@ namespace InventorySystem.UI
             var offset = PointerCell(eventData.position) - inventorySlot.Position;
             var size = inventorySlot.Size;
             InventoryDrag.GrabOffset = new Vector2Int(Mathf.Clamp(offset.x, 0, size.x - 1), Mathf.Clamp(offset.y, 0, size.y - 1));
-            ShowGhost(inventorySlot);
+
+            // The slot itself follows the pointer, freely.
+            EndFlight(slot);
+            _lifted = slot;
+            slot.SetLifted(true);
+            ShapeLifted(inventorySlot);
+            MoveLifted();
             UpdatePreview();
         }
 
         protected override void OnDragMoved(PointerEventData eventData)
         {
             _lastPointer = eventData.position;
+            MoveLifted();
             UpdatePreview();
         }
 
-        protected override void OnDragEnded() => HidePreview();
+        // The drag is over: an item still held wasn't taken anywhere (or the drop changed nothing), so it glides back.
+        protected override void OnDragEnded()
+        {
+            HidePreview();
+            if (_lifted == null)
+            {
+                return;
+            }
+
+            var item = _lifted;
+            _lifted = null;
+
+            var grid = Grid;
+            if (grid == null || (uint)item.SlotIndex >= (uint)grid.SlotCount || grid.Slots[item.SlotIndex].IsEmpty)
+            {
+                EndFlight(item);
+                return;
+            }
+
+            var slot = grid.Slots[item.SlotIndex];
+            item.SetIconRotation(slot.Rotation, IconSize(slot.Item));
+            item.Show(slot);
+            Settle(item, CellPosition(slot.Position), Footprint(slot.Size));
+        }
 
         protected override void DropFromSameInventory(InventorySlotButton target, PointerEventData eventData)
         {
@@ -296,22 +366,68 @@ namespace InventorySystem.UI
                 : new Vector2Int(grab.y, oldSize.x - 1 - grab.x);
             InventoryDrag.GrabOffset = new Vector2Int(Mathf.Clamp(turned.x, 0, newSize.x - 1), Mathf.Clamp(turned.y, 0, newSize.y - 1));
 
-            ShowGhost(slot);
-            DragGhost.For(RootCanvas).MoveTo(_lastPointer);
+            ShapeLifted(slot);
+            MoveLifted();
             UpdatePreview();
         }
 
-        private void ShowGhost(InventorySlot slot)
+        // The held slot takes the shape of the dragged item as it is turned now.
+        private void ShapeLifted(InventorySlot slot)
         {
-            var size = slot.Item.GetSize(InventoryDrag.Rotation);
-            var footprint = Footprint(size);
-            var grab = InventoryDrag.GrabOffset;
-            var pivot = new Vector2(
-                (grab.x + 0.5f) * Pitch / footprint.x,
-                1f - (grab.y + 0.5f) * Pitch / footprint.y);
+            if (_lifted == null)
+            {
+                return;
+            }
 
-            DragGhost.For(RootCanvas).Show(slot.Item.Icon, InventoryDrag.Amount, footprint, pivot,
-                InventoryDrag.Rotation, IconSize(slot.Item));
+            _lifted.RectTransform.sizeDelta = Footprint(slot.Item.GetSize(InventoryDrag.Rotation));
+            _lifted.SetIconRotation(InventoryDrag.Rotation, IconSize(slot.Item));
+        }
+
+        // The held slot goes where the pointer is, with the cell it was grabbed by under it.
+        private void MoveLifted()
+        {
+            if (_lifted == null
+                || !RectTransformUtility.ScreenPointToWorldPointInRectangle(itemLayer, _lastPointer, EventCamera, out var world))
+            {
+                return;
+            }
+
+            var grab = InventoryDrag.GrabOffset;
+            var scale = itemLayer.lossyScale;
+            _lifted.RectTransform.position = world
+                                             + new Vector3(-(grab.x + 0.5f) * Pitch * scale.x, (grab.y + 0.5f) * Pitch * scale.y, 0f);
+        }
+
+        // A released item glides to its place. Without DOTween (or with a duration of 0) it jumps.
+        private void Settle(InventorySlotButton item, Vector2 position, Vector2 size)
+        {
+            var rect = item.RectTransform;
+            rect.sizeDelta = size;
+
+#if HAS_DOTWEEN
+            if (settleDuration > 0f && item.gameObject.activeInHierarchy)
+            {
+                DOTween.Kill(rect);
+                DOTween.To(() => rect.anchoredPosition, value => rect.anchoredPosition = value, position, settleDuration)
+                    .SetEase((Ease)settleEase)
+                    .SetUpdate(true)
+                    .SetTarget(rect)
+                    .SetLink(item.gameObject)
+                    .OnKill(() => item.SetLifted(false));
+                return;
+            }
+#endif
+            rect.anchoredPosition = position;
+            item.SetLifted(false);
+        }
+
+        // Stops a glide that is still under way, and puts the slot back in its place among the others.
+        private static void EndFlight(InventorySlotButton item)
+        {
+#if HAS_DOTWEEN
+            DOTween.Kill(item.RectTransform);
+#endif
+            item.SetLifted(false);
         }
 
         private void UpdatePreview()

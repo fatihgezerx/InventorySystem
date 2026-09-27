@@ -21,7 +21,7 @@ namespace InventorySystem
     }
 
     /// <summary>
-    /// Capacity settings of one inventory, shown as the "Inventory Settings" block of an
+    /// Capacity settings of one inventory, shown at the top of each group of an
     /// <see cref="InventoryData"/>. Also usable on its own - e.g. as a serialized field on a chest - with
     /// <see cref="Inventory.Create"/>.
     /// </summary>
@@ -58,6 +58,9 @@ namespace InventorySystem
             this.rows = rows;
         }
 
+        /// <summary>A copy of these settings, so two owners never share one.</summary>
+        public InventorySettings Clone() => (InventorySettings)MemberwiseClone();
+
         public static InventorySettings Unlimited() => new(InventoryType.Unlimited);
 
         public static InventorySettings WithMaxWeight(float maxWeight) => new(InventoryType.Weight, maxWeight: maxWeight);
@@ -82,47 +85,118 @@ namespace InventorySystem
     }
 
     /// <summary>
-    /// A named group of <see cref="ItemDefinition"/>s (e.g. "Weapons", "Consumables"). Purely
-    /// organizational - grouping has no effect at runtime, it only keeps a large item list readable in
-    /// the Inspector.
+    /// A named group of <see cref="ItemDefinition"/>s (e.g. "Weapons", "Books") with an inventory of its own: every
+    /// group has its own <see cref="InventorySettings"/>, so one can be unlimited and another a grid. Its name becomes
+    /// an <see cref="ItemGroups"/> member on Compile. With more than one group, the inventory window gets a popup and a
+    /// tab button per group (see InventoryRoles).
     /// </summary>
     [Serializable]
     public sealed class ItemGroup
     {
+        // Stable ItemGroups value, assigned once by InventoryData and never reused, so renaming or reordering
+        // groups never shifts an ItemGroups already saved in a scene or prefab.
+        [HideInInspector] [SerializeField] internal int id;
+
         [SerializeField] private string header = "New Group";
+        [SerializeField] private InventorySettings settings = new();
         [SerializeField] private List<ItemDefinition> items = new();
+
+        /// <summary>The group's stable id - the same number as <see cref="Type"/>.</summary>
+        public int Id => id;
+
+        /// <summary>The group's <see cref="ItemGroups"/> member.</summary>
+        public ItemGroups Type => (ItemGroups)id;
 
         public string Header => header;
 
+        /// <summary>Capacity settings of this group's inventory.</summary>
+        public InventorySettings Settings => settings;
+
         public List<ItemDefinition> Items => items;
+
+        internal void SetSettings(InventorySettings value) => settings = value;
     }
 
     /// <summary>
-    /// Everything the inventory system needs: the inventory's capacity settings on top, and every item the game
-    /// knows about below, organized in groups. Press "Compile" to generate the <see cref="ItemTypes"/> enum and give every item's prefab a
-    /// <see cref="Collectible"/>. At runtime, hand this asset to <see cref="InventoryManager.Initialize"/>.
+    /// Everything the inventory system needs: every item the game knows about, organized in groups, each group with
+    /// the capacity settings of its own inventory. Press "Compile" to generate the <see cref="ItemTypes"/> and
+    /// <see cref="ItemGroups"/> enums and give every item's prefab a <see cref="Collectible"/>. At runtime, hand
+    /// this asset to <see cref="InventoryManager.Initialize"/>.
     /// </summary>
     [CreateAssetMenu(menuName = "Inventory System/Inventory Data", fileName = "NewInventoryData")]
     public sealed class InventoryData : ScriptableObject
     {
-        [SerializeField] private InventorySettings settings = new();
+        // From before every group had settings of its own: the whole inventory's. Copied into every group once
+        // (MigrateLegacySettings), then unused - kept so an asset saved back then still loads.
+        [HideInInspector] [SerializeField] private InventorySettings settings = new();
+        [HideInInspector] [SerializeField] private bool settingsMigrated;
 
         [SerializeField] private List<ItemGroup> groups = new() { new ItemGroup() };
 
-        // The next id to hand out. Never goes down, so a deleted item's id is never reused.
+        // The next ids to hand out. They never go down, so a deleted item's or group's id is never reused.
         [HideInInspector] [SerializeField] private int nextItemId = 1;
-
-        /// <summary>Capacity settings of the inventory <see cref="InventoryManager"/> creates.</summary>
-        public InventorySettings Settings => settings;
+        [HideInInspector] [SerializeField] private int nextGroupId = 1;
 
         /// <summary>Every group of items.</summary>
         public List<ItemGroup> Groups => groups;
 
         /// <summary>
-        /// Gives every item without an id, or with an id another item already has (e.g. a duplicated
-        /// list element), a fresh one. Returns true if anything changed.
+        /// Gives every item (and group) without an id, or with an id another one already has (e.g. a duplicated
+        /// list element), a fresh one; hands the old whole-inventory settings to the groups once. Returns true if
+        /// anything changed.
         /// </summary>
         internal bool EnsureUniqueIds()
+        {
+            var changed = MigrateLegacySettings();
+            changed |= EnsureUniqueGroupIds();
+            changed |= EnsureUniqueItemIds();
+            return changed;
+        }
+
+        private bool MigrateLegacySettings()
+        {
+            if (settingsMigrated)
+            {
+                return false;
+            }
+
+            foreach (var group in groups)
+            {
+                group?.SetSettings(settings.Clone());
+            }
+
+            settingsMigrated = true;
+            return true;
+        }
+
+        private bool EnsureUniqueGroupIds()
+        {
+            foreach (var group in groups)
+            {
+                if (group != null && group.id >= nextGroupId)
+                {
+                    nextGroupId = group.id + 1;
+                }
+            }
+
+            var changed = false;
+            var seen = new HashSet<int>();
+            foreach (var group in groups)
+            {
+                if (group == null || (group.id > 0 && seen.Add(group.id)))
+                {
+                    continue;
+                }
+
+                group.id = nextGroupId++;
+                seen.Add(group.id);
+                changed = true;
+            }
+
+            return changed;
+        }
+
+        private bool EnsureUniqueItemIds()
         {
             foreach (var group in groups)
             {

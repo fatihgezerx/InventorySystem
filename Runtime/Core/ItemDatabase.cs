@@ -14,14 +14,23 @@ namespace InventorySystem
         private readonly ItemDefinition[] _byId;
         private readonly ItemDefinition[] _all;
 
+        // The id of the group each item belongs to, by item id (0: none).
+        private readonly int[] _groupById;
+
         public ItemDatabase(InventoryData data)
         {
             if (data == null) throw new ArgumentNullException(nameof(data));
 
             var items = new List<ItemDefinition>();
+            var itemGroups = new List<int>();
             var maxId = 0;
             foreach (var group in data.Groups)
             {
+                if (group == null)
+                {
+                    continue;
+                }
+
                 foreach (var item in group.Items)
                 {
                     if (item == null || item.Id <= 0)
@@ -30,14 +39,17 @@ namespace InventorySystem
                     }
 
                     items.Add(item);
+                    itemGroups.Add(group.Id);
                     maxId = Math.Max(maxId, item.Id);
                 }
             }
 
             _byId = new ItemDefinition[maxId + 1];
+            _groupById = new int[maxId + 1];
             var unique = new List<ItemDefinition>(items.Count);
-            foreach (var item in items)
+            for (var i = 0; i < items.Count; i++)
             {
+                var item = items[i];
                 if (_byId[item.Id] != null)
                 {
                     Debug.LogWarning($"[ItemDatabase] '{item.DisplayName}' shares its id with '{_byId[item.Id].DisplayName}'; " +
@@ -52,6 +64,7 @@ namespace InventorySystem
                 }
 
                 _byId[item.Id] = item;
+                _groupById[item.Id] = itemGroups[i];
                 unique.Add(item);
             }
 
@@ -84,5 +97,12 @@ namespace InventorySystem
         }
 
         public bool Contains(ItemTypes type) => TryGet(type, out _);
+
+        /// <summary>The group <paramref name="type"/> belongs to; <see cref="ItemGroups.None"/> when the data has no such item.</summary>
+        public ItemGroups GroupOf(ItemTypes type)
+        {
+            var id = (int)type;
+            return (uint)id < (uint)_groupById.Length ? (ItemGroups)_groupById[id] : ItemGroups.None;
+        }
     }
 }

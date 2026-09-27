@@ -26,14 +26,15 @@ the optional systems are used only while they are in the project, each behind it
 ## Installation
 
 Clone or download this repository and copy it into a folder under `Assets/` (e.g.
-`Assets/Scripts/InventorySystem/`). **Compile** writes the generated `ItemTypes.cs` into the system's own
-`Runtime/Generated/` folder.
+`Assets/Scripts/InventorySystem/`). **Compile** writes the generated `ItemTypes.cs` and `ItemGroups.cs` into the
+system's own `Runtime/Generated/` folder.
 
 ## Setup
 
-**1. Create the data asset** via `Create > Inventory System > Inventory Data`. Its Inspector has
-**INVENTORY SETTINGS**, then **ITEMS SETTINGS**. The UI is designed in EasyUI (see
-[Building the UI with EasyUI](#building-the-ui-with-easyui)).
+**1. Create the data asset** via `Create > Inventory System > Inventory Data`. Its Inspector is a list of
+**groups** (**ITEMS SETTINGS**). **Every group is an inventory of its own**, with its own type and size, set at the
+top of the group: e.g. "Books" unlimited, "Weapons" a grid, "Consumables" a fixed number of slots. The UI is
+designed in EasyUI (see [Building the UI with EasyUI](#building-the-ui-with-easyui)).
 
 | Inventory Type | Extra settings | Limit |
 |---|---|---|
@@ -42,7 +43,8 @@ Clone or download this repository and copy it into a folder under `Assets/` (e.g
 | `MaxSlot` | Max Slots | a fixed number of slots |
 | `Grid` | Columns, Rows | a Columns x Rows grid, like a Resident Evil 4 attaché case; every item covers a Width x Height rectangle of cells |
 
-**2. Add your items to groups.** Group names only organize the Inspector. Every item has:
+**2. Add your items to groups.** A group's name becomes its `ItemGroups` member on Compile (so it must be
+unique, and renaming or reordering groups needs another Compile). Every item has:
 
 | Field | Meaning |
 |---|---|
@@ -55,11 +57,16 @@ Clone or download this repository and copy it into a folder under `Assets/` (e.g
 | Size / Can Rotate | **Grid mode only.** Width x Height of the item's rectangle, in cells (e.g. `1 x 1` for ammo, `3 x 2` for a handgun, `9 x 2` for a rifle). The preview turns red if it can't fit the grid. With Can Rotate, the item may be turned 90° to fit |
 
 **3. Click Compile.** It:
-- generates the `ItemTypes` enum; each member's value is the item's stable id, so reordering or deleting
-  items never shifts an `ItemTypes` already saved in a scene or prefab,
-- adds a `Collectible` component to every item's prefab (only if missing) and assigns its item.
+- generates the `ItemTypes` enum (one member per item) and the `ItemGroups` enum (one per group); each member's
+  value is a stable id, so reordering or deleting items and groups never shifts a value already saved in a
+  scene or prefab,
+- adds a `Collectible` component to every item's prefab (only if missing) and assigns its item,
+- with **more than one group**, writes a popup script per group (`{Group}Popup.cs`, in UniMVC's
+  `Popups/Inventory` folder) - and deletes those of removed or renamed groups, or all of them when one group
+  is left. Only files it wrote itself are ever deleted.
 
-Prefabs that are already up to date are skipped, and `ItemTypes.cs` is only rewritten when it changes.
+Prefabs that are already up to date are skipped, and the generated files are only rewritten when they change.
+An `InventoryData` saved before groups had settings of their own hands its settings to every group once.
 
 **Grid extras.** A `GridInventory` (the inventory of Grid mode) can also:
 
@@ -130,7 +137,10 @@ InventoryManager.Contains(ItemTypes.Key);
 InventoryManager.CanAdd(ItemTypes.Rifle);           // all-or-nothing check, changes nothing
 InventoryManager.GetItem(ItemTypes.Apple).Icon;     // name, icon, max stack...
 
-var inventory = InventoryManager.Main;
+// Every group has its inventory; an item lives in its group's. With one group, that is Main.
+var inventory = InventoryManager.GetInventory(ItemGroups.Weapons);
+var ofItem = InventoryManager.GetInventoryOf(ItemTypes.Rifle);
+InventoryManager.Inventories;                       // all of them, in the order of the groups
 inventory.Slots[i];                                 // Item, Amount, IsEmpty, SpaceLeft...
 inventory.Move(from, to);                           // drag & drop: merge / swap / move into empty
 inventory.Move(from, to, amount);                   // move part of a stack
@@ -148,8 +158,8 @@ Other inventories (chests, shops) are created the same way, with their own setti
 var chest = Inventory.Create(InventoryManager.Database, InventorySettings.WithMaxSlots(12));
 ```
 
-Only `InventoryManager.Main` publishes through `EventManager`; other inventories raise the same events
-as C# events (`SlotChanged`, `SlotCountChanged`, `ItemAdded`, `ItemRemoved`, `AddRejected`, `Changed`).
+The group inventories `InventoryManager` builds publish through `EventManager` (each event carries the inventory it
+happened in); other inventories raise the same events as C# events (`SlotChanged`, `SlotCountChanged`, `ItemAdded`, `ItemRemoved`, `AddRejected`, `Changed`).
 
 ## UI
 
@@ -206,8 +216,9 @@ set up when it is built - nothing to wire by hand:
 | Role | On | Needed | Becomes |
 |---|---|---|---|
 | Inventory Panel | Empty, Image (usually the panel's root) | Yes | The window (`InventoryPanel`): opens and closes whole, blocks gameplay while open |
-| Slot Container (List) / (Grid) | Empty, Image | Yes, one of them | The content panel, where the slots are laid out, e.g. a Scroll View's Content. (List): Unlimited, Weight, Max Slot, laid out by its Grid, Horizontal or Vertical Layout Group. (Grid): the grid itself |
-| Slot Template | Empty, Image, Button | Yes | One slot (`InventorySlotButton`), copied for every slot (Grid: every item); hidden itself |
+| Slot Container (List) / (Grid) | Empty, Image | Yes, one of them (with groups: one in each group's popup) | The content panel, where the slots are laid out, e.g. a Scroll View's Content. (List): Unlimited, Weight, Max Slot, laid out by its Grid, Horizontal or Vertical Layout Group. (Grid): the grid itself |
+| Slot Template | Empty, Image, Button | Yes | One slot (`InventorySlotButton`), copied for every slot (Grid: every item); hidden itself. With groups, one inside each popup - or one outside them all, shared by the popups without |
+| {Group} Popup / {Group} Tab Button | Empty, Image / Button | With several groups | See [Item groups in the window](#item-groups-in-the-window) |
 | Clickable Slot | next to Slot Template | No | A click on an item - or the start of a drag - selects it and shows it in the details |
 | Draggable Slot | next to Slot Template | No | Items can be dragged: moved, merged, split, swapped and carried to another window |
 | Drop To World | next to Slot Template and Draggable Slot | No | An item dragged out of the UI is dropped in front of the player. The Drop button drops either way |
@@ -215,7 +226,7 @@ set up when it is built - nothing to wire by hand:
 | Item Icon | Image | No | An item's icon. **Where it sits says which item**: inside the Slot Template the slot's (made when missing), inside the toast box the notification's, anywhere else the item clicked. Several elements can have it |
 | Slot Amount | Text | No | Inside the Slot Template: the stack's amount; made when missing. It may sit inside the Item Icon (to lie over it): it is moved up to the slot, so it doesn't turn with a rotated grid item |
 | Cell Template | Image | No | Grid: one empty background cell, copied for every cell (the items lie over the cells); hidden itself. Without it, cells are made from the Slot Template's look |
-| Capacity Text | Text | No | "12.5 / 50", "8 / 20" or used / total cells, whatever the inventory's type |
+| Capacity Text | Text | No | "12.5 / 50", "8 / 20" or used / total cells, whatever the inventory's type. Several can have it (all show the open group's) |
 | Weight Bar | Slider | No | Weight: set to total / max weight (the player can't drag it); hidden in other types |
 | Close Button / Organize Button | Button | No | `InventoryCloseButton` / `InventoryOrganizeButton` (Grid) |
 | Item Name / Item Description | Text | No | The item clicked |
@@ -288,6 +299,28 @@ On Click from Clickable Slot, Drop Outside from Drop To World) are set when the 
 keep defaults that fit the player's inventory - toggled with the Inventory action (or Tab / I), closed with
 Escape, cursor freed and the `Player` action map paused while open, drops landing 1.5 m in front of the
 `Player`. To change one, switch the Inspector to **Debug** mode.
+
+### Item groups in the window
+
+With **more than one group** the window is tabbed: press Compile on the `InventoryData` first (it writes the popup
+scripts and adds two roles per group to EasyUI's Add Role > Inventory menu, named after the group), then
+
+- give each group's box the role **{Group} Popup** (an Empty or Image inside the Inventory Panel) and put that
+  group's **Slot Container** (and, if you like, its own Slot Template, Cell Template, texts and buttons) inside it,
+- give a button the role **{Group} Tab Button**.
+
+Building the panel adds the generated popup script to each box and wires the tab buttons. The window opens on the
+first group every time; a tab button closes the open popup and opens its own (with the popup animations of
+UniMVC's `PopupViewBase`, set on each popup); pressing the tab of the popup that is already open does nothing.
+The capacity text, weight bar and Organize button follow the open group. Groups that aren't open cost nothing.
+Code can switch with `inventoryPanel.ShowGroup(ItemGroups.Weapons)`. Slots, Clickable / Draggable / Drop To World,
+Item Icon, Capacity Text, Weight Bar, Item Name / Description and the Close / Organize / Drop / Use buttons can
+all be given to several elements, so each popup can have its own; the Inventory Panel, Toast Message and Examine
+View are unique. With a single group nothing of this applies: no popups, no tabs.
+
+In a Grid group, a dragged item is the slot itself, held freely by the pointer; the cells it would cover tint
+green (fits) or red, and released it glides into its cell (or back) with DOTween - **Settle Duration** and
+**Settle Ease** on the `InventoryGridPanel`.
 
 For a chest, add a second `InventoryPanel`, turn off **Bind To Main Inventory** and **Toggle With
 Input** (Debug Inspector), and call `chestPanel.Open(chestInventory)`. `InventoryContentPanel.SlotClicked` (panel, slot index,

@@ -1,0 +1,34 @@
+#if HAS_INVENTORY_SYSTEM && HAS_UNIMVC && HAS_EVENT_SYSTEM && HAS_INPUT_SYSTEM
+using UniMVC;
+using UnityEngine;
+
+namespace InventorySystem.UI
+{
+    /// <summary>
+    /// A tab of an <see cref="InventoryPanel"/> with several item groups: opens its group's
+    /// <see cref="InventoryGroupPopup"/> and closes the one that was open. Pressing the tab of the popup that is
+    /// open does nothing.
+    /// </summary>
+    public sealed class InventoryGroupTabButton : ButtonViewBase
+    {
+        // Set by the Easy UI build (InventoryUIBinder) from the group's Tab Button role.
+        [HideInInspector] [SerializeField] private InventoryGroupPopup popup;
+
+        private InventoryPanel _panel;
+
+        protected override void OnInitialize()
+        {
+            base.OnInitialize();
+            _panel = GetComponentInParent<InventoryPanel>(true);
+        }
+
+        protected override void OnClick()
+        {
+            if (_panel != null && popup != null)
+            {
+                _panel.ShowGroup(popup);
+            }
+        }
+    }
+}
+#endif

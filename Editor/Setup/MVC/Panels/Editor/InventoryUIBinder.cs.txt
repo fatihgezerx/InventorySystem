@@ -21,8 +21,10 @@ namespace InventorySystem.UIEditor
     /// <list type="bullet">
     /// <item>The Inventory Panel is the window: it gets the <see cref="InventoryPanel"/>, so it opens and closes whole.</item>
     /// <item>The Slot Container's role says the content panel: an <see cref="InventoryGridPanel"/> for (Grid) - cells
-    /// made right away from the InventoryData's Columns x Rows, sized by its Grid Layout Group or the Cell Template -
-    /// otherwise an <see cref="InventoryListPanel"/> laid out by its Grid Layout Group.</item>
+    /// made right away from the group's Columns x Rows in the InventoryData, sized by its Grid Layout Group or the Cell
+    /// Template - otherwise an <see cref="InventoryListPanel"/> laid out by its Grid Layout Group.</item>
+    /// <item>With several groups in the InventoryData, each group's Popup role gets its popup script (written by Compile)
+    /// and holds the Slot Container of its slots; its Tab Button role opens it. The window opens on the first group.</item>
     /// <item>The roles next to the Slot Template say what the slots do: Clickable (select on click), Draggable and Drop To
     /// World. With Basic Tooltip's Shows Tooltip on it, every slot gives its item's tooltip.</item>
     /// <item>Boxes follow from what is in them: the element holding the Toast Message is the toast template, and its
@@ -56,32 +58,64 @@ namespace InventorySystem.UIEditor
                 return;
             }
 
+            var data = LoadData();
             var windowObject = build.Find(InventoryRoles.Panel);
-            var gridObject = build.Find(InventoryRoles.GridContainer);
-            var container = gridObject != null ? gridObject : build.Find(InventoryRoles.ListContainer);
-            var slotObject = build.Find(InventoryRoles.SlotTemplate);
-            if (!HasRequired(build, windowObject, container, slotObject))
+            var slotObject = build.Find(InventoryRoles.SlotTemplate);   // the first one; with groups, each popup looks for its own (see BuildGroups)
+
+            // Several groups: a popup per group, each with slot containers of its own. One group: the window's containers.
+            var groups = FindGroups(build, data, windowObject);
+            var multi = groups.Count > 0;
+
+            var gridObject = multi ? null : build.Find(InventoryRoles.GridContainer);
+            var container = multi ? null : gridObject != null ? gridObject : build.Find(InventoryRoles.ListContainer);
+            if (!HasRequired(build, windowObject, container, slotObject, multi))
             {
                 return;
             }
 
-            if (!container.transform.IsChildOf(windowObject.transform))
+            if (multi)
             {
-                Debug.LogWarning("[Inventory System] The Slot Container isn't inside the Inventory Panel, so it won't open and close with it.", container);
+                WarnAboutContainersOutsidePopups(build, groups);
+            }
+            else
+            {
+                if (data != null && data.Groups.Count > 1)
+                {
+                    Debug.LogWarning($"[Inventory System] The InventoryData has {data.Groups.Count} groups, but \"{build.Panel.name}\" has no group popups, " +
+                                     "so only the first group is shown. Press Compile on the InventoryData, then give the window a Popup and a " +
+                                     "Tab Button role per group (Add Role > Inventory).", build.Root);
+                }
+
+                if (!container.transform.IsChildOf(windowObject.transform))
+                {
+                    Debug.LogWarning("[Inventory System] The Slot Container isn't inside the Inventory Panel, so it won't open and close with it.", container);
+                }
             }
 
-            // What the slots do: the roles next to the Slot Template.
-            var slotNode = EasyUIRoles.FindNode(document, InventoryRoles.SlotTemplate);
-            var clickable = slotNode.HasRole(InventoryRoles.Clickable);
-            var draggable = slotNode.HasRole(InventoryRoles.Draggable);
-            var dropToWorld = draggable && slotNode.HasRole(InventoryRoles.DropToWorld);
+            // Content: the slots, and for grids the cells. What the slots do is the roles next to each Slot Template.
+            var contents = new List<InventoryContentPanel>();
+            var popups = new List<InventoryGroupPopup>();
+            var templates = new List<Component>();
+            bool clickable, dropToWorld;
+            if (multi)
+            {
+                BuildGroups(build, groups, SharedSlotObject(build, groups), contents, popups, templates, out clickable, out dropToWorld);
+            }
+            else
+            {
+                var behavior = BehaviorOf(build, slotObject);
+                clickable = behavior.Clickable;
+                dropToWorld = behavior.DropToWorld;
 
-            // Content: the slots, and for grids the cells.
-            var slot = BuildSlotTemplate(slotObject, build.FindInside(slotObject, InventoryRoles.ItemIcon), build.FindInside(slotObject, InventoryRoles.SlotAmount));
-            InventoryContentPanel content = gridObject != null
-                ? BuildGrid(gridObject, slot, build.Find(InventoryRoles.CellTemplate))
-                : BuildList(container, slot);
-            new Fields(content).Bool("canDrag", draggable).Apply();
+                var slot = BuildSlot(build, slotObject);
+                templates.Add(slot);
+                var settings = data != null && data.Groups.Count > 0 && data.Groups[0] != null ? data.Groups[0].Settings : null;
+                InventoryContentPanel single = gridObject != null
+                    ? BuildGrid(gridObject, slot, build.Find(InventoryRoles.CellTemplate), settings)
+                    : BuildList(container, slot);
+                new Fields(single).Bool("canDrag", behavior.Draggable).Apply();
+                contents.Add(single);
+            }
 
             // The window.
             if (!windowObject.TryGetComponent<InventoryPanel>(out var window))
@@ -89,25 +123,37 @@ namespace InventorySystem.UIEditor
                 window = windowObject.AddComponent<InventoryPanel>();
             }
 
-            var organize = AddButton<InventoryOrganizeButton>(build.Find(InventoryRoles.OrganizeButton));
-            AddButton<InventoryCloseButton>(build.Find(InventoryRoles.CloseButton));
-            var details = BuildDetails(build, windowObject);
-            AddButton<InventoryDropButton>(build.Find(InventoryRoles.DropButton));
-            AddButton<InventoryUseButton>(build.Find(InventoryRoles.UseButton));
-
-            // The weight bar is a Slider the player can't drag.
-            var weightObject = build.Find(InventoryRoles.WeightBar);
-            var weight = weightObject != null ? weightObject.GetComponent<Slider>() : null;
-            if (weight != null)
+            // Buttons, texts and the weight bar may be several (e.g. one in each group's popup): every one gets its view.
+            var organizeButtons = new List<GameObject>();
+            foreach (var button in AddButtons<InventoryOrganizeButton>(build, InventoryRoles.OrganizeButton))
             {
-                weight.interactable = false;
+                organizeButtons.Add(button.gameObject);
+            }
+
+            AddButtons<InventoryCloseButton>(build, InventoryRoles.CloseButton);
+            var details = BuildDetails(build, windowObject);
+            AddButtons<InventoryDropButton>(build, InventoryRoles.DropButton);
+            AddButtons<InventoryUseButton>(build, InventoryRoles.UseButton);
+
+            // The weight bars are Sliders the player can't drag.
+            var weights = new List<Slider>();
+            var weightObjects = new List<GameObject>();
+            build.FindAll(InventoryRoles.WeightBar, weightObjects);
+            foreach (var weightObject in weightObjects)
+            {
+                if (weightObject.TryGetComponent<Slider>(out var weight))
+                {
+                    weight.interactable = false;
+                    weights.Add(weight);
+                }
             }
 
             new Fields(window)
-                .Objects("contents", content)
-                .Ref("capacityText", Label(build.Find(InventoryRoles.CapacityText)))
-                .Ref("weightSlider", weight)
-                .Ref("organizeButton", organize != null ? organize.gameObject : null)
+                .Objects("contents", multi ? System.Array.Empty<Object>() : contents.ToArray())
+                .Objects("groupPopups", popups.ToArray())
+                .Objects("capacityTexts", Labels(build, InventoryRoles.CapacityText))
+                .Objects("weightSliders", weights.ToArray())
+                .Objects("organizeButtons", organizeButtons.ToArray())
                 .Ref("details", details)
                 .Bool("selectOnClick", clickable)
                 .Bool("dropOutside", dropToWorld)
@@ -120,15 +166,16 @@ namespace InventorySystem.UIEditor
             var ui = UISetup.EnsureUIManager(build.Canvas);
             UISetup.EnsureController<InventoryController>(ui);
             EnsureEventSystem();
-            UISetup.ListViews(ui, build.Root.transform, slot);
+            UISetup.ListViews(ui, build.Root.transform, templates.ToArray());
             if (notifications != null)
             {
                 UISetup.ListViews(ui, notifications.transform, toast);
             }
         }
 
-        // The window, a slot container and the slot template: without them there is no inventory to set up.
-        private static bool HasRequired(EasyUIBuild build, GameObject window, GameObject container, GameObject slot)
+        // The window, a slot container (with several groups: the group popups instead) and the slot template: without
+        // them there is no inventory to set up.
+        private static bool HasRequired(EasyUIBuild build, GameObject window, GameObject container, GameObject slot, bool multi)
         {
             var missing = new StringBuilder();
             if (window == null)
@@ -136,14 +183,14 @@ namespace InventorySystem.UIEditor
                 missing.Append("\n- Inventory Panel (usually on the panel's root)");
             }
 
-            if (container == null)
+            if (container == null && !multi)
             {
                 missing.Append("\n- Slot Container (List) or Slot Container (Grid)");
             }
 
             if (slot == null)
             {
-                missing.Append("\n- Slot Template");
+                missing.Append(multi ? "\n- Slot Template (in each group's popup, or one shared outside them)" : "\n- Slot Template");
             }
 
             if (missing.Length == 0)
@@ -155,6 +202,280 @@ namespace InventorySystem.UIEditor
                            $"it has no element with{missing}\nMark them in Easy UI (Add Role > Inventory) and build it again.", build.Root);
             return false;
         }
+
+        #region Groups
+
+        // One group of the InventoryData with what the panel has for it: its popup, its tab button, and its popup script.
+        private sealed class GroupParts
+        {
+            public ItemGroup Group;
+            public GameObject PopupObject;
+            public GameObject TabObject;
+            public System.Type PopupType;
+        }
+
+        // The groups of the InventoryData (with more than one) that have a popup in the panel, in the data's order.
+        private static List<GroupParts> FindGroups(EasyUIBuild build, InventoryData data, GameObject window)
+        {
+            var found = new List<GroupParts>();
+            if (data == null || data.Groups.Count < 2)
+            {
+                return found;
+            }
+
+            foreach (var group in data.Groups)
+            {
+                if (group == null || group.Id <= 0)
+                {
+                    continue;
+                }
+
+                var popupObject = build.Find(InventoryRoles.GroupPopup(group.Id));
+                if (popupObject == null)
+                {
+                    if (build.Find(InventoryRoles.GroupTab(group.Id)) != null)
+                    {
+                        Debug.LogWarning($"[Inventory System] The {group.Header} Tab Button has no {group.Header} Popup to open: give that role to the box holding the group's slots.",
+                            build.Find(InventoryRoles.GroupTab(group.Id)));
+                    }
+
+                    continue;
+                }
+
+                var type = FindPopupType(group);
+                if (type == null)
+                {
+                    Debug.LogError($"[Inventory System] There is no popup script for the group '{group.Header}' yet: press Compile on the InventoryData, " +
+                                   "then build the panel again.", popupObject);
+                    continue;
+                }
+
+                if (window != null && !popupObject.transform.IsChildOf(window.transform))
+                {
+                    Debug.LogWarning($"[Inventory System] The {group.Header} Popup isn't inside the Inventory Panel, so it won't open and close with it.", popupObject);
+                }
+
+                found.Add(new GroupParts
+                {
+                    Group = group,
+                    PopupObject = popupObject,
+                    TabObject = build.Find(InventoryRoles.GroupTab(group.Id)),
+                    PopupType = type
+                });
+            }
+
+            return found;
+        }
+
+        // The popup script Compile wrote for the group: the InventoryGroupPopup whose GroupType constant is its id.
+        private static System.Type FindPopupType(ItemGroup group)
+        {
+            foreach (var type in TypeCache.GetTypesDerivedFrom<InventoryGroupPopup>())
+            {
+                if (type.IsAbstract)
+                {
+                    continue;
+                }
+
+                var field = type.GetField("GroupType", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+                if (field != null && field.IsLiteral && System.Convert.ToInt32(field.GetRawConstantValue()) == group.Id)
+                {
+                    return type;
+                }
+            }
+
+            return null;
+        }
+
+        // A container that isn't inside one of the popups would show nothing of any group.
+        private static void WarnAboutContainersOutsidePopups(EasyUIBuild build, List<GroupParts> groups)
+        {
+            var found = new List<GameObject>();
+            foreach (var role in new[] { InventoryRoles.ListContainer, InventoryRoles.GridContainer })
+            {
+                build.FindAll(role, found);
+                foreach (var go in found)
+                {
+                    var inside = false;
+                    foreach (var group in groups)
+                    {
+                        inside |= go.transform.IsChildOf(group.PopupObject.transform);
+                    }
+
+                    if (!inside)
+                    {
+                        Debug.LogWarning("[Inventory System] This Slot Container isn't inside a group's popup, so it shows nothing: with several groups, " +
+                                         "every group's slots go in its popup.", go);
+                    }
+                }
+            }
+        }
+
+        // The first Slot Template outside every group's popup - the one popups without a template of their own copy.
+        private static GameObject SharedSlotObject(EasyUIBuild build, List<GroupParts> groups)
+        {
+            var found = new List<GameObject>();
+            build.FindAll(InventoryRoles.SlotTemplate, found);
+            foreach (var go in found)
+            {
+                var inside = false;
+                foreach (var group in groups)
+                {
+                    inside |= go.transform.IsChildOf(group.PopupObject.transform);
+                }
+
+                if (!inside)
+                {
+                    return go;
+                }
+            }
+
+            return null;
+        }
+
+        // What the roles next to a Slot Template make its slots do.
+        private readonly struct SlotBehavior
+        {
+            public readonly bool Clickable;
+            public readonly bool Draggable;
+            public readonly bool DropToWorld;
+
+            public SlotBehavior(bool clickable, bool draggable, bool dropToWorld)
+            {
+                Clickable = clickable;
+                Draggable = draggable;
+                DropToWorld = draggable && dropToWorld;
+            }
+        }
+
+        private static SlotBehavior BehaviorOf(EasyUIBuild build, GameObject slotObject)
+        {
+            var found = new List<EasyUINode>();
+            EasyUIRoles.FindNodes(build.Document, InventoryRoles.SlotTemplate, found);
+            foreach (var node in found)
+            {
+                if (build.Get(node) == slotObject)
+                {
+                    return new SlotBehavior(node.HasRole(InventoryRoles.Clickable), node.HasRole(InventoryRoles.Draggable),
+                        node.HasRole(InventoryRoles.DropToWorld));
+                }
+            }
+
+            return default;
+        }
+
+        // The Slot Template as an InventorySlotButton, with its icon and amount.
+        private static InventorySlotButton BuildSlot(EasyUIBuild build, GameObject slotObject) =>
+            BuildSlotTemplate(slotObject, build.FindInside(slotObject, InventoryRoles.ItemIcon), build.FindInside(slotObject, InventoryRoles.SlotAmount));
+
+        // Every group's popup: its slot container(s) become content panels, and the popup script is added to the box,
+        // with its tab button wired to it. A popup copies the Slot Template inside it - or, without one, the shared one.
+        private void BuildGroups(EasyUIBuild build, List<GroupParts> groups, GameObject sharedSlotObject,
+            List<InventoryContentPanel> contents, List<InventoryGroupPopup> popups, List<Component> templates,
+            out bool clickable, out bool dropToWorld)
+        {
+            clickable = false;
+            dropToWorld = false;
+
+            // A template is set up once, however many popups copy it.
+            var built = new Dictionary<GameObject, InventorySlotButton>();
+            var behaviors = new Dictionary<GameObject, SlotBehavior>();
+
+            foreach (var parts in groups)
+            {
+                var settings = parts.Group.Settings;
+                var gridObject = build.FindInside(parts.PopupObject, InventoryRoles.GridContainer);
+                var listObject = build.FindInside(parts.PopupObject, InventoryRoles.ListContainer);
+                if (gridObject == null && listObject == null)
+                {
+                    Debug.LogError($"[Inventory System] The {parts.Group.Header} Popup has no Slot Container (List) or (Grid) inside it: " +
+                                   "it would show nothing. No popup was made for the group.", parts.PopupObject);
+                    continue;
+                }
+
+                var slotObject = build.FindInside(parts.PopupObject, InventoryRoles.SlotTemplate);
+                if (slotObject == null)
+                {
+                    slotObject = sharedSlotObject;
+                }
+
+                if (slotObject == null)
+                {
+                    Debug.LogError($"[Inventory System] The {parts.Group.Header} Popup has no Slot Template inside it, and there is none outside " +
+                                   "the popups to share. No popup was made for the group.", parts.PopupObject);
+                    continue;
+                }
+
+                if (!built.TryGetValue(slotObject, out var slot))
+                {
+                    slot = BuildSlot(build, slotObject);
+                    built[slotObject] = slot;
+                    behaviors[slotObject] = BehaviorOf(build, slotObject);
+                    templates.Add(slot);
+                }
+
+                var behavior = behaviors[slotObject];
+                clickable |= behavior.Clickable;
+                dropToWorld |= behavior.DropToWorld;
+
+                var isGrid = settings.InventoryType == InventoryType.Grid;
+                if ((isGrid && gridObject == null) || (!isGrid && listObject == null))
+                {
+                    Debug.LogWarning($"[Inventory System] The {parts.Group.Header} group is a {(isGrid ? "Grid" : settings.InventoryType.ToString())} inventory, " +
+                                     $"but its popup has only a Slot Container ({(isGrid ? "List" : "Grid")}), which can't show it.", parts.PopupObject);
+                }
+
+                var groupContents = new List<InventoryContentPanel>();
+                if (gridObject != null)
+                {
+                    var cell = build.FindInside(parts.PopupObject, InventoryRoles.CellTemplate);
+                    groupContents.Add(BuildGrid(gridObject, slot, cell != null ? cell : build.Find(InventoryRoles.CellTemplate), settings));
+                }
+
+                if (listObject != null)
+                {
+                    groupContents.Add(BuildList(listObject, slot));
+                }
+
+                foreach (var content in groupContents)
+                {
+                    new Fields(content).Bool("canDrag", behavior.Draggable).Apply();
+                }
+
+                var popup = (InventoryGroupPopup)parts.PopupObject.AddComponent(parts.PopupType);
+                new Fields(popup).Objects("contents", groupContents.ToArray()).Apply();
+                contents.AddRange(groupContents);
+                popups.Add(popup);
+
+                var tab = AddButton<InventoryGroupTabButton>(parts.TabObject);
+                if (tab != null)
+                {
+                    new Fields(tab).Ref("popup", popup).Apply();
+                }
+                else if (parts.TabObject == null)
+                {
+                    Debug.LogWarning($"[Inventory System] The {parts.Group.Header} group has no Tab Button, so nothing opens its popup once another is open.",
+                        parts.PopupObject);
+                }
+            }
+        }
+
+        // The project's (first) InventoryData, or null.
+        private static InventoryData LoadData()
+        {
+            foreach (var guid in AssetDatabase.FindAssets("t:" + nameof(InventoryData)))
+            {
+                var data = AssetDatabase.LoadAssetAtPath<InventoryData>(AssetDatabase.GUIDToAssetPath(guid));
+                if (data != null)
+                {
+                    return data;
+                }
+            }
+
+            return null;
+        }
+
+        #endregion
 
         #region Content
 
@@ -283,7 +604,7 @@ namespace InventorySystem.UIEditor
         // Grid: the panel places cells and items itself, so a Grid Layout Group on the container only gives the cell
         // size and spacing, and goes. The cells are made now, from the InventoryData's Columns x Rows, to be seen and
         // styled in the scene; the panel lays them out again for the inventory it shows.
-        private static InventoryGridPanel BuildGrid(GameObject go, InventorySlotButton item, GameObject cellObject)
+        private static InventoryGridPanel BuildGrid(GameObject go, InventorySlotButton item, GameObject cellObject, InventorySettings settings)
         {
             if (cellObject == null)
             {
@@ -335,7 +656,7 @@ namespace InventorySystem.UIEditor
                 .Float("cellSpacing", Mathf.Max(0f, spacing))
                 .Apply();
 
-            GridSize(out var columns, out var rows);
+            GridSize(settings, out var columns, out var rows);
             panel.LayoutGrid(columns, rows);
             for (var i = 0; i < cells.transform.childCount; i++)
             {
@@ -345,18 +666,14 @@ namespace InventorySystem.UIEditor
             return panel;
         }
 
-        // Columns x Rows of the project's (first) InventoryData.
-        private static void GridSize(out int columns, out int rows)
+        // Columns x Rows of the group's settings.
+        private static void GridSize(InventorySettings settings, out int columns, out int rows)
         {
-            foreach (var guid in AssetDatabase.FindAssets("t:" + nameof(InventoryData)))
+            if (settings != null)
             {
-                var data = AssetDatabase.LoadAssetAtPath<InventoryData>(AssetDatabase.GUIDToAssetPath(guid));
-                if (data != null)
-                {
-                    columns = Mathf.Max(1, data.Settings.Columns);
-                    rows = Mathf.Max(1, data.Settings.Rows);
-                    return;
-                }
+                columns = Mathf.Max(1, settings.Columns);
+                rows = Mathf.Max(1, settings.Rows);
+                return;
             }
 
             columns = FallbackColumns;
@@ -395,14 +712,23 @@ namespace InventorySystem.UIEditor
         #region Details, notifications
 
         // On an invisible object in the window, when anything shows the selected item (Item Name, Description,
-        // Examine View, an Item Icon that isn't a slot's or a notification's) - wherever those are in the panel.
+        // Examine View, an Item Icon that isn't a slot's or a notification's) - wherever those are in the panel, and
+        // as many of them as there are (e.g. one in every group's popup).
         private InventoryDetailsPanel BuildDetails(EasyUIBuild build, GameObject window)
         {
-            var icon = SelectedItemIcon(build);
-            var nameObject = build.Find(InventoryRoles.DetailsName);
-            var descriptionObject = build.Find(InventoryRoles.DetailsDescription);
+            var icons = new List<Image>();
+            foreach (var iconObject in SelectedItemIcons(build))
+            {
+                if (iconObject.TryGetComponent<Image>(out var image))
+                {
+                    icons.Add(image);
+                }
+            }
+
+            var names = Labels(build, InventoryRoles.DetailsName);
+            var descriptions = Labels(build, InventoryRoles.DetailsDescription);
             var examineImage = build.Find(InventoryRoles.ExamineView);
-            if (icon == null && nameObject == null && descriptionObject == null && examineImage == null)
+            if (icons.Count == 0 && names.Length == 0 && descriptions.Length == 0 && examineImage == null)
             {
                 return null;
             }
@@ -411,17 +737,18 @@ namespace InventorySystem.UIEditor
             var examine = examineImage != null ? examineImage.AddComponent<InventoryExamineView>() : null;
 
             new Fields(panel)
-                .Ref("nameText", Label(nameObject))
-                .Ref("descriptionText", Label(descriptionObject))
-                .Ref("icon", icon != null ? icon.GetComponent<Image>() : null)
+                .Objects("nameTexts", names)
+                .Objects("descriptionTexts", descriptions)
+                .Objects("icons", icons.ToArray())
                 .Ref("examine", examine)
                 .Apply();
             return panel;
         }
 
-        // The Item Icon that shows the selected item (not a slot's, nor a notification's), or null.
-        private GameObject SelectedItemIcon(EasyUIBuild build)
+        // The Item Icons that show the selected item (not a slot's, nor a notification's).
+        private List<GameObject> SelectedItemIcons(EasyUIBuild build)
         {
+            var icons = new List<GameObject>();
             EasyUIRoles.FindNodes(build.Document, InventoryRoles.ItemIcon, _nodes);
             foreach (var node in _nodes)
             {
@@ -430,12 +757,12 @@ namespace InventorySystem.UIEditor
                     var go = build.Get(node);
                     if (go != null)
                     {
-                        return go;
+                        icons.Add(go);
                     }
                 }
             }
 
-            return null;
+            return icons;
         }
 
         // The element holding the Toast Message is the toast template, copied for every notification (an Item Icon
@@ -533,6 +860,42 @@ namespace InventorySystem.UIEditor
             }
 
             return go.AddComponent<T>();
+        }
+
+        // A view on every element with the role - a Button each.
+        private static List<T> AddButtons<T>(EasyUIBuild build, string roleId) where T : ButtonViewBase
+        {
+            var added = new List<T>();
+            var found = new List<GameObject>();
+            build.FindAll(roleId, found);
+            foreach (var go in found)
+            {
+                var button = AddButton<T>(go);
+                if (button != null)
+                {
+                    added.Add(button);
+                }
+            }
+
+            return added;
+        }
+
+        // The texts of every element with the role.
+        private static TMP_Text[] Labels(EasyUIBuild build, string roleId)
+        {
+            var texts = new List<TMP_Text>();
+            var found = new List<GameObject>();
+            build.FindAll(roleId, found);
+            foreach (var go in found)
+            {
+                var text = Label(go);
+                if (text != null)
+                {
+                    texts.Add(text);
+                }
+            }
+
+            return texts.ToArray();
         }
 
         private static TMP_Text Label(GameObject go)

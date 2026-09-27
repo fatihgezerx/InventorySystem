@@ -16,11 +16,17 @@ namespace InventorySystem.UI
     /// there.
     /// </summary>
     /// <remarks>
-    /// By default it shows <see cref="InventoryManager.Main"/> and toggles with the project-wide "Inventory"
-    /// action, or Tab / I when there is none. For a chest, turn off Bind To Main Inventory and Toggle With
+    /// With several item groups (see InventoryData) the window holds one <see cref="InventoryGroupPopup"/> per group,
+    /// shown one at a time like tabs (<see cref="ShowGroup(InventoryGroupPopup)"/>, e.g. from an
+    /// <see cref="InventoryGroupTabButton"/>): the first group's each time the window opens. Each popup shows its own
+    /// group's inventory, and the capacity text, weight bar and Organize button follow the popup that is open.
+    /// <para>
+    /// By default it shows <see cref="InventoryManager.Main"/> (with groups: each popup its group's inventory) and
+    /// toggles with the project-wide "Inventory" action, or Tab / I when there is none. For a chest, turn off Bind To Main Inventory and Toggle With
     /// Input and call <see cref="Open"/>. While any inventory window is open the cursor is freed and the
     /// Player action map is paused (except the toggle), so the player doesn't look around or interact
     /// while dragging.
+    /// </para>
     /// </remarks>
     public sealed class InventoryPanel : PanelViewBase
 #if HAS_LOCALIZATION_SYSTEM
@@ -34,14 +40,17 @@ namespace InventorySystem.UI
         // The first one that supports the inventory's mode is shown; the others are hidden.
         [HideInInspector] [SerializeField] private InventoryContentPanel[] contents;
 
-        // "used / max" of the inventory's limit. Optional.
-        [HideInInspector] [SerializeField] private TMP_Text capacityText;
+        // Several groups: one popup per group, one open at a time. Empty in a window of a single inventory.
+        [HideInInspector] [SerializeField] private InventoryGroupPopup[] groupPopups;
+
+        // "used / max" of the inventory's limit. Optional; with groups, one may sit in each popup - all show the open one's.
+        [HideInInspector] [SerializeField] private TMP_Text[] capacityTexts = System.Array.Empty<TMP_Text>();
 
         // Weight mode only: shown, and set to total / max weight. Optional.
-        [HideInInspector] [SerializeField] private UnityEngine.UI.Slider weightSlider;
+        [HideInInspector] [SerializeField] private UnityEngine.UI.Slider[] weightSliders = System.Array.Empty<UnityEngine.UI.Slider>();
 
-        // Grid mode only: shown. E.g. the Organize button. Optional.
-        [HideInInspector] [SerializeField] private GameObject organizeButton;
+        // Grid mode only: shown. E.g. the Organize buttons. Optional.
+        [HideInInspector] [SerializeField] private GameObject[] organizeButtons = System.Array.Empty<GameObject>();
 
         // Shows the selected item. Optional.
         [HideInInspector] [SerializeField] private InventoryDetailsPanel details;
@@ -98,6 +107,14 @@ namespace InventorySystem.UI
         /// <summary>The content panel showing <see cref="Inventory"/>, or null.</summary>
         public InventoryContentPanel ActiveContent { get; private set; }
 
+        /// <summary>With groups: the popup that is open (<see cref="Inventory"/> is its group's inventory), or null.</summary>
+        public InventoryGroupPopup ActiveGroup { get; private set; }
+
+        /// <summary>The open group changed (the new popup).</summary>
+        public event System.Action<InventoryGroupPopup> GroupChanged;
+
+        private bool HasGroups => groupPopups != null && groupPopups.Length > 0;
+
         // The player works in it: the game (e.g. interaction) stands by while it is open.
         protected override bool BlocksGameplayByDefault => true;
 
@@ -119,12 +136,27 @@ namespace InventorySystem.UI
 
             foreach (var content in contents)
             {
-                if (content != null)
+                HookContent(content);
+            }
+
+            if (HasGroups)
+            {
+                // Only the first group's popup is open; the others open when their tab is pressed.
+                var first = FirstGroup();
+                foreach (var popup in groupPopups)
                 {
-                    content.Initialize(UI);
-                    content.ItemDroppedOutside += OnItemDroppedOutside;
-                    content.SlotClicked += OnSlotClicked;
-                    content.SlotDragStarted += OnSlotDragStarted;
+                    if (popup == null)
+                    {
+                        continue;
+                    }
+
+                    popup.Initialize(UI);
+                    foreach (var content in popup.Contents)
+                    {
+                        HookContent(content);
+                    }
+
+                    popup.gameObject.SetActive(popup == first);
                 }
             }
 
@@ -136,8 +168,8 @@ namespace InventorySystem.UI
 
             if (bindToMainInventory)
             {
-                InventoryManager.MainChanged += Bind;
-                Bind(InventoryManager.Main);
+                InventoryManager.MainChanged += OnMainChanged;
+                OnMainChanged(InventoryManager.Main);
             }
 
             HookInput();
@@ -199,6 +231,166 @@ namespace InventorySystem.UI
             }
         }
 
+        // The inventories were (re)built: shown as they are - one per group, or the main one.
+        private void OnMainChanged(Inventory main)
+        {
+            if (this == null)
+            {
+                Teardown();
+                return;
+            }
+
+            if (!HasGroups)
+            {
+                Bind(main);
+                return;
+            }
+
+            foreach (var popup in groupPopups)
+            {
+                if (popup != null)
+                {
+                    InventoryManager.TryGetInventory(popup.Group, out var inventory);
+                    popup.Bind(inventory);
+                }
+            }
+
+            SetActiveGroup(ActiveGroup != null ? ActiveGroup : FirstGroup());
+        }
+
+        #region Groups
+
+        private InventoryGroupPopup FirstGroup()
+        {
+            foreach (var popup in groupPopups)
+            {
+                if (popup != null)
+                {
+                    return popup;
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>Opens the popup of <paramref name="group"/> and closes the one that was open, with their animations. Does nothing if it is open already.</summary>
+        public void ShowGroup(ItemGroups group)
+        {
+            if (!HasGroups)
+            {
+                return;
+            }
+
+            foreach (var popup in groupPopups)
+            {
+                if (popup != null && popup.Group == group)
+                {
+                    ShowGroup(popup);
+                    return;
+                }
+            }
+        }
+
+        /// <summary>Opens <paramref name="popup"/> and closes the one that was open, with their animations. Does nothing if it is open already.</summary>
+        public void ShowGroup(InventoryGroupPopup popup)
+        {
+            if (popup == null || !HasGroups || (popup == ActiveGroup && popup.IsOpen))
+            {
+                return;
+            }
+
+            var previous = ActiveGroup;
+            if (previous != null && previous != popup)
+            {
+                previous.Hide();
+            }
+
+            popup.Show();
+            SetActiveGroup(popup);
+            SelectFirstItem();
+        }
+
+        // The window opens on the first group, at once: the window's own animation is the one that plays.
+        private void OpenFirstGroup()
+        {
+            var first = FirstGroup();
+            foreach (var popup in groupPopups)
+            {
+                if (popup == null)
+                {
+                    continue;
+                }
+
+                if (popup == first)
+                {
+                    if (!popup.IsOpen)
+                    {
+                        // Still closing: turns straight back; otherwise just switched on.
+                        if (popup.IsVisible)
+                        {
+                            popup.Show();
+                        }
+                        else
+                        {
+                            popup.gameObject.SetActive(true);
+                        }
+                    }
+                }
+                else if (popup.IsOpen)
+                {
+                    popup.gameObject.SetActive(false);
+                }
+            }
+
+            SetActiveGroup(first);
+        }
+
+        // What the window shows - and the header tells - is the open popup's inventory.
+        private void SetActiveGroup(InventoryGroupPopup popup)
+        {
+            ActiveGroup = popup;
+            Inventory = popup != null ? popup.Inventory : null;
+            ActiveContent = popup != null ? popup.ActiveContent : null;
+            if (details != null)
+            {
+                details.Clear();
+            }
+
+            if (IsVisible)
+            {
+                ListenToHeader(Inventory);
+            }
+
+            GroupChanged?.Invoke(popup);
+        }
+
+        #endregion
+
+        private void HookContent(InventoryContentPanel content)
+        {
+            if (content == null)
+            {
+                return;
+            }
+
+            content.Initialize(UI);
+            content.ItemDroppedOutside += OnItemDroppedOutside;
+            content.SlotClicked += OnSlotClicked;
+            content.SlotDragStarted += OnSlotDragStarted;
+        }
+
+        private void UnhookContent(InventoryContentPanel content)
+        {
+            if (content == null)
+            {
+                return;
+            }
+
+            content.ItemDroppedOutside -= OnItemDroppedOutside;
+            content.SlotClicked -= OnSlotClicked;
+            content.SlotDragStarted -= OnSlotDragStarted;
+        }
+
         /// <summary>Binds <paramref name="inventory"/> and shows the window - e.g. for a chest.</summary>
         public void Open(Inventory inventory)
         {
@@ -208,6 +400,11 @@ namespace InventorySystem.UI
 
         protected override void OnShown()
         {
+            if (HasGroups)
+            {
+                OpenFirstGroup();
+            }
+
             ListenToHeader(Inventory);
             AcquireSharedState();
             SelectFirstItem();
@@ -232,7 +429,7 @@ namespace InventorySystem.UI
 
         private void Teardown()
         {
-            InventoryManager.MainChanged -= Bind;
+            InventoryManager.MainChanged -= OnMainChanged;
             ListenToHeader(null);
             ReleaseSharedState();
 
@@ -240,11 +437,22 @@ namespace InventorySystem.UI
             {
                 foreach (var content in contents)
                 {
-                    if (content != null)
+                    UnhookContent(content);
+                }
+            }
+
+            if (groupPopups != null)
+            {
+                foreach (var popup in groupPopups)
+                {
+                    if (popup == null)
                     {
-                        content.ItemDroppedOutside -= OnItemDroppedOutside;
-                        content.SlotClicked -= OnSlotClicked;
-                        content.SlotDragStarted -= OnSlotDragStarted;
+                        continue;
+                    }
+
+                    foreach (var content in popup.Contents)
+                    {
+                        UnhookContent(content);
                     }
                 }
             }
@@ -358,48 +566,62 @@ namespace InventorySystem.UI
             var inventory = Inventory;
             var weight = inventory as ListInventory;
             var showWeight = weight != null && weight.Type == InventoryType.Weight;
-
-            if (weightSlider != null && weightSlider.gameObject.activeSelf != showWeight)
-            {
-                weightSlider.gameObject.SetActive(showWeight);
-            }
-
             var showOrganize = inventory is GridInventory;
-            if (organizeButton != null && organizeButton.activeSelf != showOrganize)
-            {
-                organizeButton.SetActive(showOrganize);
-            }
 
-            if (showWeight)
+            foreach (var slider in weightSliders)
             {
-                var ratio = weight.MaxWeight > 0f ? Mathf.Clamp01(weight.TotalWeight / weight.MaxWeight) : 0f;
-                if (weightSlider != null)
+                if (slider == null)
                 {
-                    weightSlider.SetValueWithoutNotify(Mathf.Lerp(weightSlider.minValue, weightSlider.maxValue, ratio));
+                    continue;
+                }
+
+                if (slider.gameObject.activeSelf != showWeight)
+                {
+                    slider.gameObject.SetActive(showWeight);
+                }
+
+                if (showWeight)
+                {
+                    var ratio = weight.MaxWeight > 0f ? Mathf.Clamp01(weight.TotalWeight / weight.MaxWeight) : 0f;
+                    slider.SetValueWithoutNotify(Mathf.Lerp(slider.minValue, slider.maxValue, ratio));
                 }
             }
 
-            if (capacityText == null)
+            foreach (var button in organizeButtons)
             {
-                return;
+                if (button != null && button.activeSelf != showOrganize)
+                {
+                    button.SetActive(showOrganize);
+                }
             }
 
+            foreach (var text in capacityTexts)
+            {
+                if (text != null)
+                {
+                    SetCapacity(text, inventory);
+                }
+            }
+        }
+
+        private static void SetCapacity(TMP_Text text, Inventory inventory)
+        {
             switch (inventory)
             {
                 case null:
-                    capacityText.SetText(string.Empty);
+                    text.SetText(string.Empty);
                     break;
                 case GridInventory grid:
-                    capacityText.SetText("{0} / {1}", grid.CellCount - grid.FreeCellCount, grid.CellCount);
+                    text.SetText("{0} / {1}", grid.CellCount - grid.FreeCellCount, grid.CellCount);
                     break;
                 case ListInventory list when list.Type == InventoryType.Weight:
-                    capacityText.SetText("{0:1} / {1:1}", list.TotalWeight, list.MaxWeight);
+                    text.SetText("{0:1} / {1:1}", list.TotalWeight, list.MaxWeight);
                     break;
                 case ListInventory list when list.Type == InventoryType.MaxSlot:
-                    capacityText.SetText("{0} / {1}", list.UsedSlotCount, list.MaxSlots);
+                    text.SetText("{0} / {1}", list.UsedSlotCount, list.MaxSlots);
                     break;
                 default:
-                    capacityText.SetText("{0}", inventory.UsedSlotCount);
+                    text.SetText("{0}", inventory.UsedSlotCount);
                     break;
             }
         }
@@ -637,7 +859,7 @@ namespace InventorySystem.UI
 
 #if HAS_LOCALIZATION_SYSTEM
         // Filled by code ("8 / 20"): LocalizationSystem's "Sync Project" leaves this label alone.
-        bool LocalizationSystem.ILocalizedByCode.Fills(Component text) => text != null && text == capacityText;
+        bool LocalizationSystem.ILocalizedByCode.Fills(Component text) => text != null && System.Array.IndexOf(capacityTexts, text as TMP_Text) >= 0;
 #endif
     }
 }

@@ -32,8 +32,15 @@ namespace InventorySystem.UI
         [Tooltip("Opacity of the slot while its item is being dragged.")]
         [Range(0f, 1f)] [SerializeField] private float draggedAlpha = 0.35f;
 
+        // Opacity of a grid item held by the pointer: the tinted cells it hovers over show through.
+        private const float LiftedAlpha = 0.7f;
+
+        // Sorts the slot above everything else while it is held or settling - added on the first time.
+        private const int LiftedSortingOrder = 30000;
+
         private CanvasGroup _group;
         private RectTransform _rect;
+        private Canvas _liftCanvas;
 
         /// <summary>The panel this slot belongs to. Set by the panel.</summary>
         internal InventoryContentPanel Owner { get; set; }
@@ -106,6 +113,38 @@ namespace InventorySystem.UI
         {
             Group.alpha = dragged ? draggedAlpha : 1f;
             Group.blocksRaycasts = !dragged;
+        }
+
+        /// <summary>
+        /// Grid items: draws the slot above every other element while the pointer holds it and while it settles,
+        /// nearly opaque and never in the way of the pointer. Off again once it is placed (its opacity is restored
+        /// when its drag ends).
+        /// </summary>
+        /// <remarks>
+        /// It sorts through a Canvas of its own (with a GraphicRaycaster, so it can still be clicked and dragged),
+        /// added the first time; that Canvas stays, and only its Override Sorting is switched - disabling a Canvas
+        /// would hide everything in it.
+        /// </remarks>
+        internal void SetLifted(bool lifted)
+        {
+            if (lifted && _liftCanvas == null)
+            {
+                _liftCanvas = gameObject.AddComponent<Canvas>();
+                gameObject.AddComponent<GraphicRaycaster>();
+            }
+
+            if (_liftCanvas == null)
+            {
+                return;
+            }
+
+            _liftCanvas.overrideSorting = lifted;
+            if (lifted)
+            {
+                _liftCanvas.sortingOrder = LiftedSortingOrder;
+                Group.alpha = LiftedAlpha;
+                Group.blocksRaycasts = false;
+            }
         }
 
         protected override void OnClick()

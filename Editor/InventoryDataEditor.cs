@@ -6,9 +6,9 @@ using UnityEngine;
 namespace InventorySystem
 {
     /// <summary>
-    /// Custom Inspector for <see cref="InventoryData"/>: an INVENTORY SETTINGS box showing only the
-    /// capacity fields of the selected <see cref="InventoryType"/>, an ITEMS SETTINGS box of named groups
-    /// (reordered by dragging their handle), and a "Compile" button that hands off to <see cref="InventoryCompiler"/>.
+    /// Custom Inspector for <see cref="InventoryData"/>: an ITEMS SETTINGS box of named groups (reordered by dragging
+    /// their handle), each with the capacity settings of its own inventory - only the fields of its selected
+    /// <see cref="InventoryType"/> - above its items, and a "Compile" button that hands off to <see cref="InventoryCompiler"/>.
     /// The inventory's UI is designed in Easy UI and set up by roles (see InventoryRoles.cs), not here.
     /// </summary>
     [CustomEditor(typeof(InventoryData))]
@@ -18,14 +18,15 @@ namespace InventorySystem
         private const float GroupHeaderHeight = 22f;
 
         private const string ItemsInfo =
-            "Group names only organize your items in this Inspector (e.g. \"Weapons\", \"Consumables\"). " +
-            "Each item's Name becomes its ItemTypes member (\"Health Potion\" -> ItemTypes.HealthPotion), so " +
-            "names must be unique. Compile also adds a Collectible to every item's prefab. Press Compile after any change.";
+            "Every group is an inventory of its own, with its own type and size (e.g. \"Books\" unlimited, \"Weapons\" a grid). " +
+            "A group's name becomes its ItemGroups member and each item's Name its ItemTypes member (\"Health Potion\" -> " +
+            "ItemTypes.HealthPotion), so names must be unique. With more than one group, Compile also makes a popup script per " +
+            "group, and adds a Collectible to every item's prefab. Press Compile after any change - and after renaming or " +
+            "reordering groups.";
 
         // Same green as PoolData's and InteractData's Compile buttons.
         private static readonly Color CompileButtonColor = new(0.4f, 0.75f, 0.4f);
 
-        private SerializedProperty _settings;
         private SerializedProperty _groups;
         private readonly List<ReorderableList> _groupLists = new();
         private readonly GroupDragReorder _groupReorder = new();
@@ -57,7 +58,6 @@ namespace InventorySystem
 
         private void OnEnable()
         {
-            _settings = serializedObject.FindProperty("settings");
             _groups = serializedObject.FindProperty("groups");
         }
 
@@ -65,8 +65,6 @@ namespace InventorySystem
         {
             serializedObject.Update();
 
-            DrawInventorySettings();
-            EditorGUILayout.Space(10);
             DrawItems();
 
             serializedObject.ApplyModifiedProperties();
@@ -82,29 +80,28 @@ namespace InventorySystem
             GUI.backgroundColor = buttonColor;
         }
 
-        private void DrawInventorySettings()
+        // The capacity fields of one group's inventory: only those of the selected type.
+        private void DrawGroupSettings(SerializedProperty settings)
         {
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-            EditorGUILayout.LabelField("INVENTORY SETTINGS", HeaderStyle, GUILayout.Height(HeaderHeight));
-            EditorGUILayout.Space(4);
 
-            var type = _settings.FindPropertyRelative("inventoryType");
+            var type = settings.FindPropertyRelative("inventoryType");
             EditorGUILayout.PropertyField(type);
 
             var inventoryType = (InventoryType)type.intValue;
             switch (inventoryType)
             {
                 case InventoryType.Weight:
-                    EditorGUILayout.PropertyField(_settings.FindPropertyRelative("maxWeight"));
+                    EditorGUILayout.PropertyField(settings.FindPropertyRelative("maxWeight"));
                     break;
 
                 case InventoryType.MaxSlot:
-                    EditorGUILayout.PropertyField(_settings.FindPropertyRelative("maxSlots"));
+                    EditorGUILayout.PropertyField(settings.FindPropertyRelative("maxSlots"));
                     break;
 
                 case InventoryType.Grid:
-                    var columns = _settings.FindPropertyRelative("columns");
-                    var rows = _settings.FindPropertyRelative("rows");
+                    var columns = settings.FindPropertyRelative("columns");
+                    var rows = settings.FindPropertyRelative("rows");
                     EditorGUILayout.PropertyField(columns);
                     EditorGUILayout.PropertyField(rows);
                     using (new EditorGUI.DisabledScope(true))
@@ -177,6 +174,7 @@ namespace InventorySystem
                 // A new array element copies the last one, so clear it.
                 _groups.arraySize++;
                 var group = _groups.GetArrayElementAtIndex(_groups.arraySize - 1);
+                group.FindPropertyRelative("id").intValue = 0;
                 group.FindPropertyRelative("header").stringValue = "New Group";
                 group.FindPropertyRelative("items").arraySize = 0;
                 _groupLists.Clear();
@@ -188,7 +186,8 @@ namespace InventorySystem
         /// <summary>Draws one group; returns true if its remove button was clicked.</summary>
         private bool DrawGroup(int index)
         {
-            var header = _groups.GetArrayElementAtIndex(index).FindPropertyRelative("header");
+            var group = _groups.GetArrayElementAtIndex(index);
+            var header = group.FindPropertyRelative("header");
 
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
 
@@ -204,6 +203,8 @@ namespace InventorySystem
             var remove = GUILayout.Button("✕", GUILayout.Width(GroupHeaderHeight), GUILayout.Height(GroupHeaderHeight));
             EditorGUILayout.EndHorizontal();
 
+            EditorGUILayout.Space(4);
+            DrawGroupSettings(group.FindPropertyRelative("settings"));
             EditorGUILayout.Space(4);
             _groupLists[index].DoLayoutList();
 
@@ -421,8 +422,8 @@ namespace InventorySystem
         // Whether the item fits the InventoryData's grid as set or, with Can Rotate, turned.
         private static bool FitsGrid(SerializedProperty property, Vector2Int size, bool canRotate)
         {
-            var columns = property.serializedObject.FindProperty("settings.columns");
-            var rows = property.serializedObject.FindProperty("settings.rows");
+            var columns = GroupSetting(property, "columns");
+            var rows = GroupSetting(property, "rows");
             if (columns == null || rows == null)
             {
                 return true;
@@ -438,11 +439,19 @@ namespace InventorySystem
             return type == InventoryType.Weight || type == InventoryType.Grid;
         }
 
-        // Reads the mode from the InventoryData the item belongs to; items drawn anywhere else get no mode line.
+        // Reads the mode from the group the item is in; items drawn anywhere else get no mode line.
         private static InventoryType GetInventoryType(SerializedProperty property)
         {
-            var type = property.serializedObject.FindProperty("settings.inventoryType");
+            var type = GroupSetting(property, "inventoryType");
             return type != null ? (InventoryType)type.intValue : InventoryType.Unlimited;
+        }
+
+        // A field of the settings of the group the item is in: "groups.Array.data[1].items.Array.data[0]" -> "groups.Array.data[1].settings.<field>".
+        private static SerializedProperty GroupSetting(SerializedProperty item, string field)
+        {
+            var path = item.propertyPath;
+            var items = path.IndexOf(".items.Array", System.StringComparison.Ordinal);
+            return items < 0 ? null : item.serializedObject.FindProperty(path.Substring(0, items) + ".settings." + field);
         }
 
         // The rect of line <index>, spanning <count> lines.

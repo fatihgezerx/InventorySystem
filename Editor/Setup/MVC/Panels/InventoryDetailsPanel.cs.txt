@@ -17,9 +17,10 @@ namespace InventorySystem.UI
         , LocalizationSystem.ILocalizedByCode
 #endif
     {
-        [HideInInspector] [SerializeField] private TMP_Text nameText;
-        [HideInInspector] [SerializeField] private TMP_Text descriptionText;
-        [HideInInspector] [SerializeField] private Image icon;
+        // Each may be several elements (e.g. one in every group's popup), all showing the same item.
+        [HideInInspector] [SerializeField] private TMP_Text[] nameTexts = Array.Empty<TMP_Text>();
+        [HideInInspector] [SerializeField] private TMP_Text[] descriptionTexts = Array.Empty<TMP_Text>();
+        [HideInInspector] [SerializeField] private Image[] icons = Array.Empty<Image>();
         [HideInInspector] [SerializeField] private InventoryExamineView examine;
 
         [Tooltip("Hide the whole panel while no item is selected.")]
@@ -126,20 +127,31 @@ namespace InventorySystem.UI
                 SlotIndex = -1;
             }
 
-            if (nameText != null)
+            var itemName = item != null ? Localized(item.DisplayName) : string.Empty;
+            foreach (var text in nameTexts)
             {
-                nameText.SetText(item != null ? Localized(item.DisplayName) : string.Empty);
+                if (text != null)
+                {
+                    text.SetText(itemName);
+                }
             }
 
-            if (descriptionText != null)
+            var description = item != null ? Localized(item.Description) : string.Empty;
+            foreach (var text in descriptionTexts)
             {
-                descriptionText.SetText(item != null ? Localized(item.Description) : string.Empty);
+                if (text != null)
+                {
+                    text.SetText(description);
+                }
             }
 
-            if (icon != null)
+            foreach (var icon in icons)
             {
-                icon.sprite = item != null ? item.Icon : null;
-                icon.enabled = icon.sprite != null;
+                if (icon != null)
+                {
+                    icon.sprite = item != null ? item.Icon : null;
+                    icon.enabled = icon.sprite != null;
+                }
             }
 
             if (examine != null)
@@ -165,7 +177,7 @@ namespace InventorySystem.UI
 #if HAS_LOCALIZATION_SYSTEM
         // Filled by code, already in the current language: LocalizationSystem's "Sync Project" leaves these
         // labels alone.
-        bool LocalizationSystem.ILocalizedByCode.Fills(Component text) => text != null && (text == nameText || text == descriptionText);
+        bool LocalizationSystem.ILocalizedByCode.Fills(Component text) => text is TMP_Text label && (Array.IndexOf(nameTexts, label) >= 0 || Array.IndexOf(descriptionTexts, label) >= 0);
 #endif
     }
 }

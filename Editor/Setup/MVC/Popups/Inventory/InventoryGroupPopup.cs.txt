@@ -1,0 +1,74 @@
+#if HAS_INVENTORY_SYSTEM && HAS_UNIMVC && HAS_EVENT_SYSTEM && HAS_INPUT_SYSTEM
+using System.Collections.Generic;
+using UniMVC;
+using UnityEngine;
+
+namespace InventorySystem.UI
+{
+    /// <summary>
+    /// The popup of one item group in an <see cref="InventoryPanel"/> with several groups: shows that group's
+    /// inventory with the content panel that fits its type (an <see cref="InventoryListPanel"/> for Unlimited /
+    /// Weight / MaxSlot, an <see cref="InventoryGridPanel"/> for Grid). It opens and closes with the animations of a
+    /// <see cref="PopupViewBase"/>; the panel opens one at a time (see <see cref="InventoryPanel.ShowGroup(InventoryGroupPopup)"/>).
+    /// </summary>
+    /// <remarks>
+    /// One subclass per group is written by InventoryData's Compile, in this folder (<c>BooksPopup</c> for a group
+    /// named Books) - only to say which group it is. A popup that is closed has no listeners and draws nothing, so
+    /// groups that aren't open cost nothing.
+    /// </remarks>
+    public abstract class InventoryGroupPopup : PopupViewBase
+    {
+        // The slot containers in this popup, set by the Easy UI build (InventoryUIBinder): the first that supports
+        // the group's inventory is shown, the others hidden.
+        [HideInInspector] [SerializeField] private InventoryContentPanel[] contents = System.Array.Empty<InventoryContentPanel>();
+
+        /// <summary>The group this popup shows.</summary>
+        public abstract ItemGroups Group { get; }
+
+        /// <summary>The inventory shown, or null.</summary>
+        public Inventory Inventory { get; private set; }
+
+        /// <summary>The content panel showing <see cref="Inventory"/>, or null.</summary>
+        public InventoryContentPanel ActiveContent { get; private set; }
+
+        /// <summary>Every content panel of this popup.</summary>
+        public IReadOnlyList<InventoryContentPanel> Contents => contents;
+
+        protected override void OnInitialize()
+        {
+            base.OnInitialize();
+            foreach (var content in contents)
+            {
+                if (content != null)
+                {
+                    content.Initialize(UI);
+                }
+            }
+        }
+
+        /// <summary>Shows <paramref name="inventory"/> (null to show nothing) with the content panel that supports its type.</summary>
+        public void Bind(Inventory inventory)
+        {
+            Inventory = inventory;
+            ActiveContent = null;
+
+            foreach (var content in contents)
+            {
+                if (content == null)
+                {
+                    continue;
+                }
+
+                var use = ActiveContent == null && inventory != null && content.Supports(inventory.Type);
+                if (use)
+                {
+                    ActiveContent = content;
+                }
+
+                content.Bind(use ? inventory : null);
+                content.gameObject.SetActive(use);
+            }
+        }
+    }
+}
+#endif
