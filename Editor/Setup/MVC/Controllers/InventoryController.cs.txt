@@ -64,11 +64,6 @@ namespace InventorySystem.UI
                 window.RebuildLayoutLater();
             }
 
-            if (UI.TryGet<InventoryTooltipPanel>(out var tooltip))
-            {
-                tooltip.RebuildLayoutLater();
-            }
-
             if (UI.TryGet<InventoryNotificationPanel>(out var notifications))
             {
                 notifications.RebuildLayoutLater();

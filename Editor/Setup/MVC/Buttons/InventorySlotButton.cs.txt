@@ -1,4 +1,7 @@
 #if HAS_INVENTORY_SYSTEM && HAS_UNIMVC && HAS_EVENT_SYSTEM && HAS_INPUT_SYSTEM
+#if HAS_BASIC_TOOLTIP
+using BasicTooltip;
+#endif
 using TMPro;
 using UniMVC;
 using UnityEngine;
@@ -11,17 +14,20 @@ namespace InventorySystem.UI
     /// One inventory slot: a button with an icon and an amount label. Holds no inventory logic - every
     /// pointer event (click, hover, drag, drop) goes to the <see cref="InventoryContentPanel"/> that
     /// created it, which knows which slot it shows. Left click comes through the Button (so it gets the
-    /// Button's hover / pressed look); other buttons through <see cref="OnPointerClick"/>.
+    /// Button's hover / pressed look); other buttons through <see cref="OnPointerClick"/>. With Basic Tooltip, it
+    /// gives its item's tooltip to a Tooltip Trigger on it (Easy UI's Shows Tooltip role).
     /// </summary>
     [RequireComponent(typeof(CanvasGroup))]
     public sealed class InventorySlotButton : ButtonViewBase,
-        IPointerClickHandler, IPointerEnterHandler, IPointerExitHandler,
-        IBeginDragHandler, IDragHandler, IEndDragHandler, IDropHandler
+        IPointerClickHandler, IBeginDragHandler, IDragHandler, IEndDragHandler, IDropHandler
+#if HAS_BASIC_TOOLTIP
+        , ITooltipSource
+#endif
     {
-        [SerializeField] private Image icon;
+        [HideInInspector] [SerializeField] private Image icon;
 
         [Tooltip("Shows the amount when it is more than 1.")]
-        [SerializeField] private TMP_Text amountText;
+        [HideInInspector] [SerializeField] private TMP_Text amountText;
 
         [Tooltip("Opacity of the slot while its item is being dragged.")]
         [Range(0f, 1f)] [SerializeField] private float draggedAlpha = 0.35f;
@@ -39,7 +45,10 @@ namespace InventorySystem.UI
 
         private CanvasGroup Group => _group != null ? _group : _group = GetComponent<CanvasGroup>();
 
-        /// <summary>Draws <paramref name="slot"/>; an empty slot (or null) shows only the background.</summary>
+        /// <summary>
+        /// Draws <paramref name="slot"/>; an empty slot (or null) shows only the background, and can't be pressed
+        /// (nor dragged: the panel ignores a drag from an empty slot).
+        /// </summary>
         public void Show(InventorySlot slot)
         {
             if (slot == null || slot.IsEmpty)
@@ -48,6 +57,7 @@ namespace InventorySystem.UI
                 return;
             }
 
+            SetPressable(true);
             icon.sprite = slot.Item.Icon;
             icon.enabled = icon.sprite != null;
 
@@ -63,9 +73,19 @@ namespace InventorySystem.UI
 
         public void ShowEmpty()
         {
+            SetPressable(false);
             icon.sprite = null;
             icon.enabled = false;
             amountText.SetText(string.Empty);
+        }
+
+        // Pressable only while it holds an item. Things still drop onto an empty slot.
+        private void SetPressable(bool pressable)
+        {
+            if (IsInitialized && Interactable != pressable)
+            {
+                Interactable = pressable;
+            }
         }
 
         /// <summary>
@@ -104,21 +124,13 @@ namespace InventorySystem.UI
             }
         }
 
-        public void OnPointerEnter(PointerEventData eventData)
+#if HAS_BASIC_TOOLTIP
+        bool ITooltipSource.TryGetTooltip(out TooltipContent content)
         {
-            if (Owner != null)
-            {
-                Owner.OnSlotPointerEnter(this, eventData);
-            }
+            content = default;
+            return Owner != null && Owner.TryGetTooltip(this, out content);
         }
-
-        public void OnPointerExit(PointerEventData eventData)
-        {
-            if (Owner != null)
-            {
-                Owner.OnSlotPointerExit();
-            }
-        }
+#endif
 
         public void OnBeginDrag(PointerEventData eventData)
         {

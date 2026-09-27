@@ -7,12 +7,12 @@ namespace InventorySystem
 {
     /// <summary>
     /// Custom Inspector for <see cref="InventoryData"/>: an INVENTORY SETTINGS box showing only the
-    /// capacity fields of the selected <see cref="InventoryType"/>, a UI SETTINGS box while Easy UI and UniMVC
-    /// are in the project (see InventoryDataEditor.UI.cs), an ITEMS SETTINGS box of named groups (reordered by
-    /// dragging their handle), and a "Compile" button that hands off to <see cref="InventoryCompiler"/>.
+    /// capacity fields of the selected <see cref="InventoryType"/>, an ITEMS SETTINGS box of named groups
+    /// (reordered by dragging their handle), and a "Compile" button that hands off to <see cref="InventoryCompiler"/>.
+    /// The inventory's UI is designed in Easy UI and set up by roles (see InventoryRoles.cs), not here.
     /// </summary>
     [CustomEditor(typeof(InventoryData))]
-    internal sealed partial class InventoryDataEditor : Editor
+    internal sealed class InventoryDataEditor : Editor
     {
         private const float HeaderHeight = 28f;
         private const float GroupHeaderHeight = 22f;
@@ -67,7 +67,6 @@ namespace InventorySystem
 
             DrawInventorySettings();
             EditorGUILayout.Space(10);
-            DrawUISettings();
             DrawItems();
 
             serializedObject.ApplyModifiedProperties();
@@ -118,9 +117,6 @@ namespace InventorySystem
             EditorGUILayout.HelpBox(GetModeInfo(inventoryType), MessageType.Info);
             EditorGUILayout.EndVertical();
         }
-
-        // The UI SETTINGS box and the space after it; nothing without Easy UI and UniMVC.
-        partial void DrawUISettings();
 
         private static string GetModeInfo(InventoryType type) => type switch
         {

@@ -1,14 +1,16 @@
 #if HAS_INVENTORY_SYSTEM && HAS_UNIMVC && HAS_EVENT_SYSTEM && HAS_INPUT_SYSTEM
 using System;
 using System.Collections.Generic;
+using UniMVC;
 using UnityEngine;
 using UnityEngine.UI;
 
 namespace InventorySystem.UI
 {
     /// <summary>
-    /// Shows an Unlimited, Weight or MaxSlot inventory as rows of slots in a <see cref="GridLayoutGroup"/>,
-    /// one <see cref="InventorySlotButton"/> per slot. Buttons are created once and reused; a change
+    /// Shows an Unlimited, Weight or MaxSlot inventory as rows of slots in a <see cref="GridLayoutGroup"/> - or as
+    /// a single row / column in a Horizontal / Vertical Layout Group (e.g. a hotbar) - one
+    /// <see cref="InventorySlotButton"/> per slot. Buttons are created once and reused; a change
     /// redraws only its own slot. Drag a slot onto another to merge, swap or move into an empty slot.
     /// </summary>
     /// <remarks>
@@ -17,20 +19,22 @@ namespace InventorySystem.UI
     /// </remarks>
     public sealed class InventoryListPanel : InventoryContentPanel
     {
-        [SerializeField] private InventorySlotButton slotTemplate;
+        [HideInInspector] [SerializeField] private InventorySlotButton slotTemplate;
 
-        [Tooltip("The layout the slots are laid out by; usually a ScrollRect's content.")]
-        [SerializeField] private GridLayoutGroup content;
+        // The layout the slots are laid out by, usually a ScrollRect's content: a Grid Layout Group (rows of Columns
+        // slots), or a Horizontal / Vertical one (a single row / column).
+        [HideInInspector] [SerializeField] private LayoutGroup content;
 
-        [Tooltip("Sized to fit Columns x Max Visible Rows, so the window around it fits the slots.")]
-        [SerializeField] private LayoutElement layoutElement;
+        // Grid Layout Group: sized to fit Columns x Max Visible Rows, so the window around it fits the slots.
+        [HideInInspector] [SerializeField] private LayoutElement layoutElement;
 
+        [Tooltip("Grid Layout Group only: slots per row.")]
         [Min(1)] [SerializeField] private int columns = 6;
 
-        [Tooltip("Rows shown before the list scrolls.")]
+        [Tooltip("Grid Layout Group only: rows shown before the list scrolls.")]
         [Min(1)] [SerializeField] private int maxVisibleRows = 5;
 
-        [Tooltip("Unlimited / Weight: at least this many cells are shown, rounded up to full rows.")]
+        [Tooltip("Unlimited / Weight: at least this many cells are shown (with a Grid Layout Group, rounded up to full rows).")]
         [Min(0)] [SerializeField] private int minimumVisibleSlots = 24;
 
         private readonly List<InventorySlotButton> _slots = new();
@@ -74,8 +78,10 @@ namespace InventorySystem.UI
             var visible = slotCount;
             if (Inventory != null && Inventory.Type != InventoryType.MaxSlot)
             {
+                // Full rows in a grid; a single row or column has no rows to fill.
+                var line = content is GridLayoutGroup ? columns : 1;
                 visible = Math.Max(visible, minimumVisibleSlots);
-                visible = (visible + columns - 1) / columns * columns;
+                visible = (visible + line - 1) / line * line;
             }
 
             if (visible == _visibleCount)
@@ -103,20 +109,27 @@ namespace InventorySystem.UI
             UpdateSize();
         }
 
+        // A grid is kept at Columns and sized to its visible rows; a single row or column sizes itself (its layout
+        // group, and the Content Size Fitter of a Scroll View's content).
         private void UpdateSize()
         {
-            content.constraint = GridLayoutGroup.Constraint.FixedColumnCount;
-            content.constraintCount = columns;
+            if (content is not GridLayoutGroup grid)
+            {
+                return;
+            }
+
+            grid.constraint = GridLayoutGroup.Constraint.FixedColumnCount;
+            grid.constraintCount = columns;
 
             if (layoutElement == null)
             {
                 return;
             }
 
-            var pitch = content.cellSize + content.spacing;
+            var pitch = grid.cellSize + grid.spacing;
             var rows = Mathf.Clamp((_visibleCount + columns - 1) / columns, 1, maxVisibleRows);
-            layoutElement.preferredWidth = columns * pitch.x - content.spacing.x + content.padding.horizontal;
-            layoutElement.preferredHeight = rows * pitch.y - content.spacing.y + content.padding.vertical;
+            layoutElement.preferredWidth = columns * pitch.x - grid.spacing.x + grid.padding.horizontal;
+            layoutElement.preferredHeight = rows * pitch.y - grid.spacing.y + grid.padding.vertical;
         }
     }
 }

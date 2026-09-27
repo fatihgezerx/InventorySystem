@@ -13,11 +13,14 @@ namespace InventorySystem.UI
     /// is clicked; the panel then follows that slot, and empties when the slot does. Every field is optional.
     /// </summary>
     public sealed class InventoryDetailsPanel : PanelViewBase
+#if HAS_LOCALIZATION_SYSTEM
+        , LocalizationSystem.ILocalizedByCode
+#endif
     {
-        [SerializeField] private TMP_Text nameText;
-        [SerializeField] private TMP_Text descriptionText;
-        [SerializeField] private Image icon;
-        [SerializeField] private InventoryExamineView examine;
+        [HideInInspector] [SerializeField] private TMP_Text nameText;
+        [HideInInspector] [SerializeField] private TMP_Text descriptionText;
+        [HideInInspector] [SerializeField] private Image icon;
+        [HideInInspector] [SerializeField] private InventoryExamineView examine;
 
         [Tooltip("Hide the whole panel while no item is selected.")]
         [SerializeField] private bool hideWhenEmpty;
@@ -40,6 +43,9 @@ namespace InventorySystem.UI
         {
             base.OnInitialize();
             Clear();
+#if HAS_LOCALIZATION_SYSTEM
+            LocalizationSystem.LocalizationRuntime.LanguageChanged += OnLanguageChanged;
+#endif
         }
 
         /// <summary>Shows the item in <paramref name="inventory"/>'s slot <paramref name="slotIndex"/>, and follows that slot.</summary>
@@ -53,7 +59,28 @@ namespace InventorySystem.UI
         /// <summary>Shows nothing.</summary>
         public void Clear() => Select(null, -1);
 
-        private void OnDestroy() => Listen(null);
+        private void OnDestroy()
+        {
+            Listen(null);
+#if HAS_LOCALIZATION_SYSTEM
+            LocalizationSystem.LocalizationRuntime.LanguageChanged -= OnLanguageChanged;
+#endif
+        }
+
+#if HAS_LOCALIZATION_SYSTEM
+        // The selected item's name and description, shown again in the new language (its model stays as it is).
+        private void OnLanguageChanged()
+        {
+            // Raised by a static event after this panel was destroyed without ever being enabled.
+            if (this == null)
+            {
+                LocalizationSystem.LocalizationRuntime.LanguageChanged -= OnLanguageChanged;
+                return;
+            }
+
+            Refresh();
+        }
+#endif
 
         private void Listen(Inventory inventory)
         {
@@ -135,41 +162,10 @@ namespace InventorySystem.UI
             text;
 #endif
 
-#if UNITY_EDITOR && HAS_LOCALIZATION_SYSTEM
-        // These labels are filled by code, so LocalizationSystem's "Sync Project" must leave them alone: a
-        // LocalizedText on them would overwrite what the code shows. Keeps them marked with
-        // ExcludeFromLocalization - also on UIs built before LocalizationSystem was installed.
-        private void OnValidate()
-        {
-            UnityEditor.EditorApplication.delayCall += () =>
-            {
-                if (this == null || Application.isPlaying || UnityEditor.EditorUtility.IsPersistent(this))
-                {
-                    return;
-                }
-
-                ExcludeFromLocalization(nameText);
-                ExcludeFromLocalization(descriptionText);
-            };
-        }
-
-        private static void ExcludeFromLocalization(Component label)
-        {
-            if (label == null)
-            {
-                return;
-            }
-
-            if (!label.TryGetComponent<LocalizationSystem.ExcludeFromLocalization>(out _))
-            {
-                UnityEditor.Undo.AddComponent<LocalizationSystem.ExcludeFromLocalization>(label.gameObject);
-            }
-
-            if (label.TryGetComponent<LocalizationSystem.LocalizedText>(out var localizedText))
-            {
-                UnityEditor.Undo.DestroyObjectImmediate(localizedText);
-            }
-        }
+#if HAS_LOCALIZATION_SYSTEM
+        // Filled by code, already in the current language: LocalizationSystem's "Sync Project" leaves these
+        // labels alone.
+        bool LocalizationSystem.ILocalizedByCode.Fills(Component text) => text != null && (text == nameText || text == descriptionText);
 #endif
     }
 }

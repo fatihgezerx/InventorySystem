@@ -23,63 +23,61 @@ namespace InventorySystem.UI
     /// while dragging.
     /// </remarks>
     public sealed class InventoryPanel : PanelViewBase
+#if HAS_LOCALIZATION_SYSTEM
+        , LocalizationSystem.ILocalizedByCode
+#endif
     {
-        [Header("Content")]
-        [Tooltip("The first one that supports the inventory's mode is shown; the others are hidden.")]
-        [SerializeField] private InventoryContentPanel[] contents;
+        // None of these is shown in the Inspector: the parts are wired, and Select On Click / Drop Outside set, by the
+        // Easy UI build (InventoryUIBinder) from the panel's roles; the rest keep their defaults, which fit the
+        // player's inventory. For something else (e.g. a chest window), set them from code or the Debug Inspector.
 
-        [Tooltip("\"used / max\" of the inventory's limit.")]
-        [SerializeField] private TMP_Text capacityText;
+        // The first one that supports the inventory's mode is shown; the others are hidden.
+        [HideInInspector] [SerializeField] private InventoryContentPanel[] contents;
 
-        [Tooltip("Weight mode only: shown, and filled to total / max weight.")]
-        [SerializeField] private GameObject weightBar;
+        // "used / max" of the inventory's limit. Optional.
+        [HideInInspector] [SerializeField] private TMP_Text capacityText;
 
-        [Tooltip("Set to total / max weight (0 - 1). Or leave it empty and use Weight Fill.")]
-        [SerializeField] private UnityEngine.UI.Slider weightSlider;
+        // Weight mode only: shown, and set to total / max weight. Optional.
+        [HideInInspector] [SerializeField] private UnityEngine.UI.Slider weightSlider;
 
-        [Tooltip("Stretched horizontally to total / max weight.")]
-        [SerializeField] private RectTransform weightFill;
+        // Grid mode only: shown. E.g. the Organize button. Optional.
+        [HideInInspector] [SerializeField] private GameObject organizeButton;
 
-        [Tooltip("Grid mode only: shown. E.g. the Organize button.")]
-        [SerializeField] private GameObject organizeButton;
+        // Shows the selected item. Optional.
+        [HideInInspector] [SerializeField] private InventoryDetailsPanel details;
 
-        [Tooltip("Shows the selected item. Optional.")]
-        [SerializeField] private InventoryDetailsPanel details;
+        // A click on an item - or the start of a drag - selects it and shows it in Details (Clickable Slot).
+        [HideInInspector] [SerializeField] private bool selectOnClick = true;
 
-        [Header("Behaviour")]
-        [Tooltip("A click on an item - or the start of a drag - selects it and shows it in Details.")]
-        [SerializeField] private bool selectOnClick = true;
+        [HideInInspector] [SerializeField] private bool bindToMainInventory = true;
+        [HideInInspector] [SerializeField] private bool startOpen;
+        [HideInInspector] [SerializeField] private bool toggleWithInput = true;
 
-        [SerializeField] private bool bindToMainInventory = true;
-        [SerializeField] private bool startOpen;
-        [SerializeField] private bool toggleWithInput = true;
+        // Opens / closes the window. Empty: the project-wide action "Inventory" if there is one, otherwise Tab / I.
+        [HideInInspector] [SerializeField] private InputActionReference toggleAction;
 
-        [Tooltip("Opens / closes the window. Empty: the project-wide action \"Inventory\" if there is one, otherwise Tab / I.")]
-        [SerializeField] private InputActionReference toggleAction;
+        // Close on the project-wide "UI/Cancel" action (Escape).
+        [HideInInspector] [SerializeField] private bool closeOnCancel = true;
 
-        [Tooltip("Close on the project-wide \"UI/Cancel\" action (Escape).")]
-        [SerializeField] private bool closeOnCancel = true;
+        // Free and show the cursor while open; restored on close.
+        [HideInInspector] [SerializeField] private bool unlockCursor = true;
 
-        [Tooltip("Free and show the cursor while open; restored on close.")]
-        [SerializeField] private bool unlockCursor = true;
+        // Pause every action of Player Action Map (except the toggle) while open.
+        [HideInInspector] [SerializeField] private bool blockPlayerInput = true;
 
-        [Tooltip("Pause every action of Player Action Map (except the toggle) while open.")]
-        [SerializeField] private bool blockPlayerInput = true;
+        [HideInInspector] [SerializeField] private string playerActionMap = "Player";
 
-        [SerializeField] private string playerActionMap = "Player";
+        // Items dragged out of the UI are dropped into the world (Drop To World). The Drop button drops either way.
+        [HideInInspector] [SerializeField] private bool dropOutside = true;
 
-        [Header("Dropping into the world")]
-        [Tooltip("Items dragged out of the UI are dropped into the world. The Drop button drops either way.")]
-        [SerializeField] private bool dropOutside = true;
+        // Dropped items land in front of the object with this tag.
+        [HideInInspector] [SerializeField] private string dropOriginTag = "Player";
 
-        [Tooltip("Dropped items land in front of the object with this tag.")]
-        [SerializeField] private string dropOriginTag = "Player";
+        // Where dropped items land, in the origin's local space (x right, y up, z forward).
+        [HideInInspector] [SerializeField] private Vector3 dropOffset = new(0f, 1f, 1.5f);
 
-        [Tooltip("Where dropped items land, in the origin's local space (x right, y up, z forward).")]
-        [SerializeField] private Vector3 dropOffset = new(0f, 1f, 1.5f);
-
-        [Tooltip("Random horizontal spread, so several dropped objects don't spawn inside each other.")]
-        [Min(0f)] [SerializeField] private float dropScatter = 0.3f;
+        // Random horizontal spread, so several dropped objects don't spawn inside each other.
+        [HideInInspector] [SerializeField] private float dropScatter = 0.3f;
 
         // Shared by every inventory window: the first to open saves and changes the state, the last to close restores it.
         private static int _openCount;
@@ -212,15 +210,20 @@ namespace InventorySystem.UI
         {
             ListenToHeader(Inventory);
             AcquireSharedState();
+            SelectFirstItem();
         }
 
         protected override void OnHidden()
         {
             ListenToHeader(null);
-            if (UI != null && UI.TryGet<InventoryTooltipPanel>(out var tooltip))
+#if HAS_BASIC_TOOLTIP
+            // Its slots don't get a pointer exit when the window closes under the pointer.
+            var tooltipTarget = BasicTooltip.Tooltips.Target;
+            if (tooltipTarget != null && tooltipTarget.IsChildOf(transform))
             {
-                tooltip.Hide();
+                BasicTooltip.Tooltips.HideAny();
             }
+#endif
 
             ReleaseSharedState();
         }
@@ -356,9 +359,9 @@ namespace InventorySystem.UI
             var weight = inventory as ListInventory;
             var showWeight = weight != null && weight.Type == InventoryType.Weight;
 
-            if (weightBar != null && weightBar.activeSelf != showWeight)
+            if (weightSlider != null && weightSlider.gameObject.activeSelf != showWeight)
             {
-                weightBar.SetActive(showWeight);
+                weightSlider.gameObject.SetActive(showWeight);
             }
 
             var showOrganize = inventory is GridInventory;
@@ -373,13 +376,6 @@ namespace InventorySystem.UI
                 if (weightSlider != null)
                 {
                     weightSlider.SetValueWithoutNotify(Mathf.Lerp(weightSlider.minValue, weightSlider.maxValue, ratio));
-                }
-
-                if (weightFill != null)
-                {
-                    weightFill.anchorMin = Vector2.zero;
-                    weightFill.anchorMax = new Vector2(ratio, 1f);
-                    weightFill.offsetMin = weightFill.offsetMax = Vector2.zero;
                 }
             }
 
@@ -430,6 +426,54 @@ namespace InventorySystem.UI
         }
 
         private void OnSelectionChanged() => SelectionChanged?.Invoke();
+
+        // Opening the window selects its first item - in a grid the top-left one, row by row - so the details and
+        // examine view greet the player ready; nothing is selected when the inventory is empty.
+        private void SelectFirstItem()
+        {
+            if (details == null)
+            {
+                return;
+            }
+
+            var inventory = Inventory;
+            var first = -1;
+            if (inventory != null)
+            {
+                var grid = inventory is GridInventory;
+                var firstOrder = int.MaxValue;
+                for (var i = 0; i < inventory.SlotCount; i++)
+                {
+                    var slot = inventory.Slots[i];
+                    if (slot.IsEmpty)
+                    {
+                        continue;
+                    }
+
+                    if (!grid)
+                    {
+                        first = i;
+                        break;
+                    }
+
+                    var order = slot.Position.y * 65536 + slot.Position.x;
+                    if (order < firstOrder)
+                    {
+                        firstOrder = order;
+                        first = i;
+                    }
+                }
+            }
+
+            if (first >= 0)
+            {
+                details.Select(inventory, first);
+            }
+            else
+            {
+                details.Clear();
+            }
+        }
 
         /// <summary>Raises <see cref="UseRequested"/> for the selected item, e.g. for a Use button.</summary>
         public void UseSelected()
@@ -591,40 +635,9 @@ namespace InventorySystem.UI
 
         #endregion
 
-#if UNITY_EDITOR && HAS_LOCALIZATION_SYSTEM
-        // These labels are filled by code, so LocalizationSystem's "Sync Project" must leave them alone: a
-        // LocalizedText on them would overwrite what the code shows. Keeps them marked with
-        // ExcludeFromLocalization - also on UIs built before LocalizationSystem was installed.
-        private void OnValidate()
-        {
-            UnityEditor.EditorApplication.delayCall += () =>
-            {
-                if (this == null || Application.isPlaying || UnityEditor.EditorUtility.IsPersistent(this))
-                {
-                    return;
-                }
-
-                ExcludeFromLocalization(capacityText);
-            };
-        }
-
-        private static void ExcludeFromLocalization(Component label)
-        {
-            if (label == null)
-            {
-                return;
-            }
-
-            if (!label.TryGetComponent<LocalizationSystem.ExcludeFromLocalization>(out _))
-            {
-                UnityEditor.Undo.AddComponent<LocalizationSystem.ExcludeFromLocalization>(label.gameObject);
-            }
-
-            if (label.TryGetComponent<LocalizationSystem.LocalizedText>(out var localizedText))
-            {
-                UnityEditor.Undo.DestroyObjectImmediate(localizedText);
-            }
-        }
+#if HAS_LOCALIZATION_SYSTEM
+        // Filled by code ("8 / 20"): LocalizationSystem's "Sync Project" leaves this label alone.
+        bool LocalizationSystem.ILocalizedByCode.Fills(Component text) => text != null && text == capacityText;
 #endif
     }
 }

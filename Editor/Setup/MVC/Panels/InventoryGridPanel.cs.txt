@@ -1,5 +1,6 @@
 #if HAS_INVENTORY_SYSTEM && HAS_UNIMVC && HAS_EVENT_SYSTEM && HAS_INPUT_SYSTEM
 using System.Collections.Generic;
+using UniMVC;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
@@ -22,20 +23,20 @@ namespace InventorySystem.UI
     public sealed class InventoryGridPanel : InventoryContentPanel
     {
         [Tooltip("Holds the background cells. Anchored and sized by the panel.")]
-        [SerializeField] private RectTransform cellLayer;
+        [HideInInspector] [SerializeField] private RectTransform cellLayer;
 
         [Tooltip("Holds the item buttons. Anchored and sized by the panel.")]
-        [SerializeField] private RectTransform itemLayer;
+        [HideInInspector] [SerializeField] private RectTransform itemLayer;
 
         [Tooltip("Holds the drop preview: one tinted rectangle. Anchored and sized by the panel.")]
-        [SerializeField] private RectTransform previewLayer;
+        [HideInInspector] [SerializeField] private RectTransform previewLayer;
 
         [Tooltip("Copied for grid cells that aren't under Cell Layer yet, and for the drop preview.")]
-        [SerializeField] private Image cellTemplate;
-        [SerializeField] private InventorySlotButton itemTemplate;
+        [HideInInspector] [SerializeField] private Image cellTemplate;
+        [HideInInspector] [SerializeField] private InventorySlotButton itemTemplate;
 
         [Tooltip("Sized to the whole grid, so the window around it fits.")]
-        [SerializeField] private LayoutElement layoutElement;
+        [HideInInspector] [SerializeField] private LayoutElement layoutElement;
 
         [Min(8f)] [SerializeField] private float cellSize = 64f;
         [Min(0f)] [SerializeField] private float cellSpacing = 2f;

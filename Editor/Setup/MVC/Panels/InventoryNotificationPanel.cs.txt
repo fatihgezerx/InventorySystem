@@ -14,10 +14,10 @@ namespace InventorySystem.UI
     /// </summary>
     public sealed class InventoryNotificationPanel : PanelViewBase
     {
-        [SerializeField] private InventoryToastPanel toastTemplate;
+        [HideInInspector] [SerializeField] private InventoryToastPanel toastTemplate;
 
         [Tooltip("Toasts are added here as the last child; give it a VerticalLayoutGroup. Empty: this object.")]
-        [SerializeField] private RectTransform container;
+        [HideInInspector] [SerializeField] private RectTransform container;
 
         [Min(1)] [SerializeField] private int maxToasts = 5;
         [Min(0.1f)] [SerializeField] private float displaySeconds = 2.5f;

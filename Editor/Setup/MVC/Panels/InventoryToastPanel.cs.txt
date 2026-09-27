@@ -10,8 +10,8 @@ namespace InventorySystem.UI
     [RequireComponent(typeof(CanvasGroup))]
     public sealed class InventoryToastPanel : PanelViewBase
     {
-        [SerializeField] private Image icon;
-        [SerializeField] private TMP_Text message;
+        [HideInInspector] [SerializeField] private Image icon;
+        [HideInInspector] [SerializeField] private TMP_Text message;
 
         private CanvasGroup _group;
 

@@ -3,7 +3,7 @@
 Data-driven inventory system for Unity with four capacity modes: **Unlimited**, **Weight**, **MaxSlot**
 and **Grid**. Every change is published through **EventSystem**, so a UI only listens and never polls.
 With **UniMVC**, a ready-made inventory UI is added to your project (see [UI](#ui)), and with **EasyUI**
-it is built from a panel you design (see [Building the UI with EasyUI](#building-the-ui-with-easyui)).
+you design it there and it is set up by roles (see [Building the UI with EasyUI](#building-the-ui-with-easyui)).
 
 ## Requirements
 
@@ -13,7 +13,8 @@ it is built from a panel you design (see [Building the UI with EasyUI](#building
 | [UniMVC](https://github.com/fatihgezerx/UniMVC) | For the UI | The inventory UI is built from UniMVC views |
 | Input System (`com.unity.inputsystem`) | For the UI | Open / close key, rotating items |
 | [LocalizationSystem](https://github.com/fatihgezerx/LocalizationSystem) | No | Translating item names and descriptions (see [Localization](#localization)) |
-| [EasyUI](https://github.com/fatihgezerx/EasyUI) | No | Building the inventory UI from a panel designed in EasyUI (see [Building the UI with EasyUI](#building-the-ui-with-easyui)) |
+| [EasyUI](https://github.com/fatihgezerx/EasyUI) | No | Designing the inventory UI in EasyUI, set up by roles (see [Building the UI with EasyUI](#building-the-ui-with-easyui)) |
+| [BasicTooltip](https://github.com/fatihgezerx/BasicTooltip) | No | Item tooltips on hover (without it, there are none) |
 | [PoolSystem](https://github.com/fatihgezerx/PoolSystem) | No | Taking dropped and examined items from pools instead of instantiating them (see [Dropping items back into the world](#dropping-items-back-into-the-world)) |
 
 Importing InventorySystem never breaks your project. A small setup script checks for these, leaves
@@ -31,8 +32,8 @@ Clone or download this repository and copy it into a folder under `Assets/` (e.g
 ## Setup
 
 **1. Create the data asset** via `Create > Inventory System > Inventory Data`. Its Inspector has
-**INVENTORY SETTINGS**, then **UI SETTINGS** (while EasyUI and UniMVC are in the project, see
-[Building the UI with EasyUI](#building-the-ui-with-easyui)), then **ITEMS SETTINGS**.
+**INVENTORY SETTINGS**, then **ITEMS SETTINGS**. The UI is designed in EasyUI (see
+[Building the UI with EasyUI](#building-the-ui-with-easyui)).
 
 | Inventory Type | Extra settings | Limit |
 |---|---|---|
@@ -164,10 +165,9 @@ project, compiled to nothing, and come back to life when InventorySystem is impo
 | File | Base | What it does |
 |---|---|---|
 | `Panels/InventoryPanel` | `PanelViewBase` | The window: open / close, capacity header (`12.5 / 50` + a bar in Weight mode, `8 / 20` slots, used / total cells in Grid), shows the content panel matching the mode, drops items dragged out of the UI into the world |
-| `Panels/InventoryContentPanel` | `PanelViewBase` | Base of the two below: binding, drag and drop, tooltips |
+| `Panels/InventoryContentPanel` | `PanelViewBase` | Base of the two below: binding, drag and drop, tooltips (with BasicTooltip) |
 | `Panels/InventoryListPanel` | `InventoryContentPanel` | Unlimited / Weight / MaxSlot: rows of slots |
 | `Panels/InventoryGridPanel` | `InventoryContentPanel` | Grid: cells, items sized to their rectangle, green / red drop preview, rotate while dragging, `Organize()` |
-| `Panels/InventoryTooltipPanel` | `PanelViewBase` | Item name, stack and weight on hover |
 | `Controllers/InventoryController` | `ControllerBase` | The only listener to the inventory's events; passes them on to the views |
 | `Panels/InventoryNotificationPanel` | `PanelViewBase` | "+3 Apple" / "Inventory full" toasts, merged per item; shown only while a toast is on screen |
 | `Panels/InventoryToastPanel` | `PanelViewBase` | One toast |
@@ -178,11 +178,12 @@ project, compiled to nothing, and come back to life when InventorySystem is impo
 | `Panels/InventoryExamineView` | - | On a Raw Image: the item's 3D model, rendered by a camera of its own and turned by dragging on it |
 | `Buttons/InventoryDropButton` | `ButtonViewBase` | Drops the selected item into the world; can't be pressed while nothing is selected |
 | `Buttons/InventoryUseButton` | `ButtonViewBase` | Raises the window's `UseRequested` for the selected item (nothing happens while nothing listens); can't be pressed while nothing is selected |
-| `Panels/Editor/InventoryUIBinder` | - | **Build UI** in UI SETTINGS (not in `MVC/Editor/`: that folder is UniMVC's own editor assembly, which can't see your views) |
+| `Panels/Editor/InventoryUIBinder` | - | With EasyUI: sets up a panel built with Inventory roles (not in `MVC/Editor/`: that folder is UniMVC's own editor assembly, which can't see your views) |
 
 **Setup by hand:** lay out the UI yourself, add these views to its objects and fill in their fields. Add
 a `UIManager` and the `InventoryController` to the canvas, then press **Collect From Children** on the
-`UIManager` and on each panel. Or let EasyUI do all of it (next section).
+`UIManager` and on each panel. Or let EasyUI do all of it (see
+[Building the UI with EasyUI](#building-the-ui-with-easyui)).
 
 The grid panel uses every Image under its Cell Layer as a background cell, so cells placed there in the
 editor can be seen and styled before play. At runtime it adds any missing ones from its Cell Template
@@ -190,29 +191,29 @@ editor can be seen and styled before play. At runtime it adds any missing ones f
 
 ### Building the UI with EasyUI
 
-With [EasyUI](https://github.com/fatihgezerx/EasyUI) in the project too, the InventoryData Inspector shows a
-**UI SETTINGS** block between INVENTORY SETTINGS and ITEMS SETTINGS:
+With [EasyUI](https://github.com/fatihgezerx/EasyUI) in the project too, the inventory UI is designed there and
+set up when it is built - nothing to wire by hand:
 
-1. Design the inventory window in EasyUI (`Tools > Easy UI`) and save it. **The panel is the window**: it
-   opens and closes whole, and its boxes (header, details, tooltip...) are yours to lay out.
-2. Mark what does something with **Inventory roles**: select an element and pick its role from the **Role**
-   menu at the top of EasyUI's inspector, under **Inventory** (e.g. *Inventory > Item Name*). Boxes get no
-   role, except the slots' (Slot
-   Container, Slot Template): the menu lists only the roles that fit the element - text roles on a Text,
-   image roles on an Image, button roles on a Button, the Weight Bar on a Slider, the Examine View on a Raw
-   Image, and the slots' roles on an Empty or an Image (a box with a background is an Image). Names don't
-   matter; Build UI finds elements by role only.
-3. Drop the saved panel into UI SETTINGS' **Panel** field. A checklist shows what the panel has: green for
-   what it has, red for something required it lacks, grey for an optional feature it lacks. Nothing is
-   ticked by hand: the panel decides which features there are.
-4. Pick the behaviour, then press **Build UI**.
+1. Design the inventory window in EasyUI (`Tools > Easy UI`). Its boxes (header, details...) are yours to lay
+   out.
+2. Mark what does something with **Inventory roles**: select an element and pick **Add Role > Inventory** at
+   the top of EasyUI's inspector. An element can have several roles. The menu lists only the roles that fit
+   the element - text roles on a Text, image roles on an Image, button roles on a Button, the Weight Bar on a
+   Slider, the Examine View on a Raw Image, the boxes' roles on an Empty or an Image (a box with a background is
+   an Image). Names don't matter: elements are found by role only.
+3. Save, then build it into the scene with **GameObject > UI (Canvas) > Easy UI > your panel**.
 
 | Role | On | Needed | Becomes |
 |---|---|---|---|
-| Slot Container | Empty, Image | Yes | The content panel, where the slots are laid out, e.g. a Scroll View's Content. Grid: the grid itself |
+| Inventory Panel | Empty, Image (usually the panel's root) | Yes | The window (`InventoryPanel`): opens and closes whole, blocks gameplay while open |
+| Slot Container (List) / (Grid) | Empty, Image | Yes, one of them | The content panel, where the slots are laid out, e.g. a Scroll View's Content. (List): Unlimited, Weight, Max Slot, laid out by its Grid, Horizontal or Vertical Layout Group. (Grid): the grid itself |
 | Slot Template | Empty, Image, Button | Yes | One slot (`InventorySlotButton`), copied for every slot (Grid: every item); hidden itself |
+| Clickable Slot | next to Slot Template | No | A click on an item - or the start of a drag - selects it and shows it in the details |
+| Draggable Slot | next to Slot Template | No | Items can be dragged: moved, merged, split, swapped and carried to another window |
+| Drop To World | next to Slot Template and Draggable Slot | No | An item dragged out of the UI is dropped in front of the player. The Drop button drops either way |
+| Tooltip > Shows Tooltip | next to Slot Template (BasicTooltip's role) | No | Hovering an item shows its name, description and icon in BasicTooltip's tooltip, designed in this panel or any other: every slot gives its item's (`ITooltipSource`) |
 | Item Icon | Image | No | An item's icon. **Where it sits says which item**: inside the Slot Template the slot's (made when missing), inside the toast box the notification's, anywhere else the item clicked. Several elements can have it |
-| Slot Amount | Text | No | Inside the Slot Template: the stack's amount; made when missing. It may sit inside the Item Icon (to lie over it): Build UI moves it up to the slot, so it doesn't turn with a rotated grid item |
+| Slot Amount | Text | No | Inside the Slot Template: the stack's amount; made when missing. It may sit inside the Item Icon (to lie over it): it is moved up to the slot, so it doesn't turn with a rotated grid item |
 | Cell Template | Image | No | Grid: one empty background cell, copied for every cell (the items lie over the cells); hidden itself. Without it, cells are made from the Slot Template's look |
 | Capacity Text | Text | No | "12.5 / 50", "8 / 20" or used / total cells, whatever the inventory's type |
 | Weight Bar | Slider | No | Weight: set to total / max weight (the player can't drag it); hidden in other types |
@@ -221,39 +222,32 @@ With [EasyUI](https://github.com/fatihgezerx/EasyUI) in the project too, the Inv
 | Examine View | Raw Image | No | `InventoryExamineView`: the item clicked in 3D |
 | Drop Button | Button | No | `InventoryDropButton`: drops the selected item into the world |
 | Use Button | Button | No | `InventoryUseButton`: raises the window's `UseRequested` (inventory, slot) for the selected item, for your code to use it; does nothing by itself yet |
-| Tooltip Name / Tooltip Details | Text | No | The hovered item. **The box holding them becomes the tooltip** (`InventoryTooltipPanel`) |
 | Toast Message | Text | No | A notification. **The box holding it is the toast template** (put an Item Icon next to it for the item's icon), copied for every notification; **its parent stacks them** (`InventoryNotificationPanel`) |
 
-The item clicked is shown by an `InventoryDetailsPanel` that Build UI puts on an invisible object in the
-window, wherever Item Name, Description, (its) Item Icon and Examine View are.
+The texts filled by code (Slot Amount, Capacity Text, Item Name, Item Description, Toast Message) can't also be
+LocalizationSystem's *Localized Text*: they are shown translated already.
 
-**Behaviour** (copied onto the views by Build UI):
+When the panel is built:
 
-| Setting | Effect |
-|---|---|
-| Can Drag | Items can be dragged: moved, merged, split, swapped and carried to another window |
-| Can Click | A click on an item - or the start of a drag - selects it and shows it (needs Item Name, Item Description, an Item Icon outside the slots or Examine View) |
-| Can Drop To World | An item dragged out of the UI is dropped in front of the player. The Drop button drops either way |
-
-**Build UI** builds the panel into the scene's canvas, adds the views to the marked elements and wires
-them together:
-
-- The content panel matches INVENTORY SETTINGS' type. **Grid**: an `InventoryGridPanel` whose cells are
-  made right away from Columns x Rows, sized by the Slot Container's Grid Layout Group (cell size and
-  spacing, the group itself is then removed: the panel places cells itself) or else by the Cell Template.
-  The container gets a Layout Element the panel sizes to the whole grid, so a Content Size Fitter on it (or
-  a layout group around it) fits the grid. The grid's columns and rows are always INVENTORY SETTINGS' - a
-  Fixed Column Count on the Grid Layout Group changes nothing.
-  **Other types**: an `InventoryListPanel` laid out by the Slot Container's Grid Layout Group (made from the
-  Slot Template's size when there is none), with as many columns and visible rows as fit. In a Scroll View,
-  the Content gets a Content Size Fitter so it grows with its slots.
-- The panel's root gets the `InventoryPanel`. The notifications' box is taken out of it to the canvas
-  (named "<Panel> Notifications"), so they show while the inventory is closed; it gets a Vertical Layout
-  Group to stack them if it has no layout group.
-- The canvas gets a `UIManager` and an `InventoryController` if it has none, and every new view is listed
-  in the panel it sits in, or in the `UIManager`. The `UIManager` initializes them all in its `Start`.
-- Pressing it again offers to replace the earlier build (changes made to it in the scene are lost), or to
-  keep both. It is one undo step either way.
+- **Grid** (Slot Container (Grid)): an `InventoryGridPanel` whose cells are made right away from the
+  InventoryData's Columns x Rows (the project's first InventoryData), sized by the container's Grid Layout
+  Group (cell size and spacing; the group itself is then removed, since the panel places cells itself) or else
+  by the Cell Template. The container gets a Layout Element the panel sizes to the whole grid, so a Content
+  Size Fitter on it (or a layout group around it) fits the grid. At runtime the grid follows the inventory it
+  shows. **List**: an `InventoryListPanel` laid out by the container's layout group, as designed - a **Grid**
+  Layout Group gives rows of as many columns as fit, a **Horizontal** / **Vertical** one a single row / column
+  (e.g. a hotbar scrolling sideways); without one, a Grid Layout Group at the Slot Template's size. Empty
+  placeholder slots fill what is seen (the Scroll View's viewport). In a Scroll View without a Content Size
+  Fitter, the Content gets one so it grows with its slots, along its row or column.
+- The item clicked is shown by an `InventoryDetailsPanel` on an invisible object in the window, wherever Item
+  Name, Description, (its) Item Icon and Examine View are.
+- The notifications' box is taken out of the window to the canvas, so they show while the inventory is closed;
+  it gets a Vertical Layout Group to stack them if it has no layout group.
+- The canvas gets a `UIManager` and an `InventoryController` if it has none (and the scene an EventSystem), and
+  every view is listed in the panel it sits in, or in the `UIManager`, which initializes them all in its
+  `Start`. Templates aren't listed: their copies are set up by their panels.
+- It is one undo step. A panel with inventory roles but no Inventory Panel, Slot Container or Slot Template is
+  built without the inventory's views, and the Console says what is missing.
 
 ### Examine view
 
@@ -284,28 +278,37 @@ front to the right, up tips it up. **Start Rotation**, **Field Of View**, **Fram
 | Drag on the Examine View | Turn the selected item's model |
 
 While a window is open, the cursor is freed and the `Player` action map is paused (except the toggle).
+Opening a window with details selects its first item (in a grid, the top-left one), so its name, description
+and examine view show right away; an empty inventory selects nothing. When the language changes, the selected
+item's name and description follow at once.
 Content panels only listen while visible and redraw only the slots that change.
 
+`InventoryPanel` shows none of its fields in the Inspector: its parts and the role-driven behaviour (Select
+On Click from Clickable Slot, Drop Outside from Drop To World) are set when the panel is built, and the rest
+keep defaults that fit the player's inventory - toggled with the Inventory action (or Tab / I), closed with
+Escape, cursor freed and the `Player` action map paused while open, drops landing 1.5 m in front of the
+`Player`. To change one, switch the Inspector to **Debug** mode.
+
 For a chest, add a second `InventoryPanel`, turn off **Bind To Main Inventory** and **Toggle With
-Input**, and call `chestPanel.Open(chestInventory)`. `InventoryContentPanel.SlotClicked` (panel, slot index,
+Input** (Debug Inspector), and call `chestPanel.Open(chestInventory)`. `InventoryContentPanel.SlotClicked` (panel, slot index,
 button) is the hook for "use" / "equip".
 
 ## Localization
 
 With [LocalizationSystem](https://github.com/fatihgezerx/LocalizationSystem) in the project, every item's
 **Name** and **Description** become translatable: **Sync Project** in LocalizationSystem's Language Data
-window finds them in the InventoryData and adds each one as a row. The UI's tooltip and pickup toasts
+window finds them in the InventoryData and adds each one as a row. The UI's tooltips and pickup toasts
 then show item names in the current language. In your own code, show
 `LocalizationRuntime.Get(item.DisplayName)` / `LocalizationRuntime.Get(item.Description)`. The Name is
 still what Compile turns into the `ItemTypes` member, so translating it never changes your code. When the
-language changes, `InventoryController` resizes the open inventory window, tooltip and notifications to
+language changes, `InventoryController` resizes the open inventory window and notifications to
 their translated texts in the same frame (UniMVC's `RebuildLayoutLater`). Hidden ones are resized when
 they are shown, if their **Rebuild Layout On Show** is ticked.
 
 It is optional: without LocalizationSystem, InventorySystem compiles and shows the Names as written.
 Install it later and they become translatable on their own, no change needed. The UI labels filled by
-code (the capacity counter, the tooltip's name and details) keep themselves marked with
-`ExcludeFromLocalization`, so Sync Project never overwrites them.
+code (the capacity counter, the item's name and description) tell Sync Project so (LocalizationSystem's
+`ILocalizedByCode`): it never puts a `LocalizedText` on them, and nothing is added to their objects.
 
 ## Events
 

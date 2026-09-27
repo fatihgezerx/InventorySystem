@@ -1,5 +1,8 @@
 #if HAS_INVENTORY_SYSTEM && HAS_UNIMVC && HAS_EVENT_SYSTEM && HAS_INPUT_SYSTEM
 using System;
+#if HAS_BASIC_TOOLTIP
+using BasicTooltip;
+#endif
 using TMPro;
 using UniMVC;
 using UnityEngine;
@@ -12,8 +15,8 @@ namespace InventorySystem.UI
     /// <summary>
     /// Base of the panels that show an inventory's slots (<see cref="InventoryListPanel"/>,
     /// <see cref="InventoryGridPanel"/>): binds to one <see cref="Inventory"/> through its C# events and
-    /// redraws only the slots that change - never polls. Shared behaviour lives here: tooltips on hover,
-    /// click events, and drag and drop within a panel, between panels (<see cref="Inventory.TransferTo"/>,
+    /// redraws only the slots that change - never polls. Shared behaviour lives here: tooltips on hover (with
+    /// Basic Tooltip), click events, and drag and drop within a panel, between panels (<see cref="Inventory.TransferTo"/>,
     /// e.g. player &lt;-&gt; chest) and out of the UI (<see cref="ItemDroppedOutside"/>).
     /// </summary>
     /// <remarks>
@@ -171,17 +174,6 @@ namespace InventorySystem.UI
             }
         }
 
-        internal void OnSlotPointerEnter(InventorySlotButton slot, PointerEventData eventData)
-        {
-            if (!InventoryDrag.IsActive && TryGetSlot(slot.SlotIndex, out var inventorySlot) && UI != null
-                && UI.TryGet<InventoryTooltipPanel>(out var tooltip))
-            {
-                tooltip.ShowFor(Inventory, inventorySlot, eventData.position);
-            }
-        }
-
-        internal void OnSlotPointerExit() => HideTooltip();
-
         internal void OnSlotBeginDrag(InventorySlotButton slot, PointerEventData eventData)
         {
             var draggable = canDrag
@@ -314,13 +306,45 @@ namespace InventorySystem.UI
             return slot != null && !slot.IsEmpty;
         }
 
+        // Only a tooltip shown for one of this panel's slots.
         private void HideTooltip()
         {
-            if (UI != null && UI.TryGet<InventoryTooltipPanel>(out var tooltip))
+#if HAS_BASIC_TOOLTIP
+            var target = Tooltips.Target;
+            if (target != null && target.IsChildOf(transform))
             {
-                tooltip.Hide();
+                Tooltips.HideAny();
             }
+#endif
         }
+
+#if HAS_BASIC_TOOLTIP
+        /// <summary>
+        /// What <paramref name="slot"/>'s tooltip shows: its item's name, description (both translated with
+        /// LocalizationSystem) and icon. None for an empty slot, or while an item is dragged. Asked on hover only,
+        /// never per frame.
+        /// </summary>
+        internal bool TryGetTooltip(InventorySlotButton slot, out TooltipContent content)
+        {
+            if (InventoryDrag.IsActive || !TryGetSlot(slot.SlotIndex, out var inventorySlot))
+            {
+                content = default;
+                return false;
+            }
+
+            var item = inventorySlot.Item;
+            var description = string.IsNullOrEmpty(item.Description) ? null : Localized(item.Description);
+            content = new TooltipContent(Localized(item.DisplayName), description, item.Icon);
+            return true;
+        }
+
+        private static string Localized(string text) =>
+#if HAS_LOCALIZATION_SYSTEM
+            LocalizationSystem.LocalizationRuntime.Get(text);
+#else
+            text;
+#endif
+#endif
     }
 
     /// <summary>The one drag in progress, shared by every panel so an item can be dragged from one to another.</summary>

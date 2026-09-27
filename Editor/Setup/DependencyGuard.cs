@@ -49,7 +49,8 @@ namespace InventorySystem.Setup
             Dependency.Package("Input System", "Unity.InputSystem", "HAS_INPUT_SYSTEM", "com.unity.inputsystem", "com.unity.inputsystem", "for the inventory UI (open / close key, rotate)"),
             Dependency.Repository("Localization System", "LocalizationSystem.Runtime", "HAS_LOCALIZATION_SYSTEM", "https://github.com/fatihgezerx/LocalizationSystem", "Assets/Scripts/LocalizationSystem", "for translating item names and descriptions"),
             Dependency.Repository("Pool System", "PoolSystem.Runtime", "HAS_POOL_SYSTEM", "https://github.com/fatihgezerx/PoolSystem", "Assets/Scripts/PoolSystem", "for taking dropped and examined items from pools instead of instantiating them"),
-            Dependency.Repository("Easy UI", "EasyUI.Editor", "HAS_EASYUI", "https://github.com/fatihgezerx/EasyUI", "Assets/Scripts/EasyUI", "for building the inventory UI from an Easy UI panel"),
+            Dependency.Repository("Easy UI", "EasyUI.Editor", "HAS_EASYUI", "https://github.com/fatihgezerx/EasyUI", "Assets/Scripts/EasyUI", "for designing the inventory UI in Easy UI, set up by roles"),
+            Dependency.Repository("Basic Tooltip", "BasicTooltip.Runtime", "HAS_BASIC_TOOLTIP", "https://github.com/fatihgezerx/BasicTooltip", "Assets/Scripts/BasicTooltip", "for item tooltips on hover"),
         };
 
         private static AddAndRemoveRequest _packageRequest;
