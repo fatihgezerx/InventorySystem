@@ -534,6 +534,13 @@ namespace InventorySystem.UI
                 return;
             }
 
+            // Carrying an item with a gamepad: Cancel puts it back instead of closing the window.
+            if (InventoryDrag.IsActive && InventoryDrag.ViaPad)
+            {
+                InventoryDrag.SourcePanel.CancelHold();
+                return;
+            }
+
             Hide();
         }
 

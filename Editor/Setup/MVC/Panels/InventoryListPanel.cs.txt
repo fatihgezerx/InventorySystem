@@ -61,6 +61,14 @@ namespace InventorySystem.UI
             }
         }
 
+        protected override void SetReceiving(bool receiving)
+        {
+            foreach (var slot in _slots)
+            {
+                slot.SetReceiving(receiving);
+            }
+        }
+
         protected override void OnSlotCountChanged(int count)
         {
             var previous = _visibleCount;

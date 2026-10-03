@@ -70,6 +70,12 @@ namespace InventorySystem.UI
         private bool _ownsRotate;
         private Vector2 _lastPointer;
 
+        // Gamepad: the cell the carried item is held over, moved a cell at a time by the UI's Navigate action.
+        private InputAction _navigate;
+        private Vector2Int _padCell;
+        private bool _navigateLatched;
+        private InventorySlotButton _padLifted;
+
         // The item slot the pointer holds, free over the grid; null when nothing is dragged.
         private InventorySlotButton _lifted;
 
@@ -84,6 +90,14 @@ namespace InventorySystem.UI
             ResolveRotateAction();
             _rotate.performed += OnRotatePerformed;
             _rotate.Enable();
+
+            // The UI's own Navigate action (shared with the event system's input module, so it is only listened to).
+            _navigate = InputSystem.actions != null ? InputSystem.actions.FindAction("UI/Navigate") : null;
+            if (_navigate != null)
+            {
+                _navigate.performed += OnNavigatePerformed;
+            }
+
             base.OnEnable();
         }
 
@@ -93,6 +107,12 @@ namespace InventorySystem.UI
             if (_ownsRotate)
             {
                 _rotate.Disable();
+            }
+
+            if (_navigate != null)
+            {
+                _navigate.performed -= OnNavigatePerformed;
+                _navigate = null;
             }
 
             base.OnDisable();
@@ -268,9 +288,17 @@ namespace InventorySystem.UI
         protected override void OnDragStarted(InventorySlotButton slot, InventorySlot inventorySlot, PointerEventData eventData)
         {
             _lastPointer = eventData.position;
-            var offset = PointerCell(eventData.position) - inventorySlot.Position;
+            _padCell = PointerCell(eventData.position);
+            var offset = _padCell - inventorySlot.Position;
             var size = inventorySlot.Size;
             InventoryDrag.GrabOffset = new Vector2Int(Mathf.Clamp(offset.x, 0, size.x - 1), Mathf.Clamp(offset.y, 0, size.y - 1));
+
+            // A carried item is moved with Navigate over the cells: the selection must stay on it.
+            if (InventoryDrag.ViaPad)
+            {
+                _padLifted = slot;
+                slot.SetNavigable(false);
+            }
 
             // The slot itself follows the pointer, freely.
             EndFlight(slot);
@@ -292,6 +320,12 @@ namespace InventorySystem.UI
         protected override void OnDragEnded()
         {
             HidePreview();
+            if (_padLifted != null)
+            {
+                _padLifted.SetNavigable(true);
+                _padLifted = null;
+            }
+
             if (_lifted == null)
             {
                 return;
@@ -345,6 +379,49 @@ namespace InventorySystem.UI
             {
                 grid.MoveTo(split, position, rotation);
             }
+        }
+
+        // The drop of a carried item is where its cursor cell is, not where a pointer would be.
+        protected override PointerEventData PadDropPointer(InventorySlotButton target) =>
+            InventoryDrag.SourcePanel == this ? PadPointer(CellScreenPosition(_padCell)) : base.PadDropPointer(target);
+
+        // One cell per push of the d-pad or stick.
+        private void OnNavigatePerformed(InputAction.CallbackContext context)
+        {
+            var value = context.ReadValue<Vector2>();
+            if (value.sqrMagnitude < 0.25f)
+            {
+                _navigateLatched = false;
+                return;
+            }
+
+            if (_navigateLatched)
+            {
+                return;
+            }
+
+            _navigateLatched = true;
+            if (InventoryDrag.SourcePanel != this || !InventoryDrag.ViaPad || Grid == null)
+            {
+                return;
+            }
+
+            var step = Mathf.Abs(value.x) > Mathf.Abs(value.y)
+                ? new Vector2Int(value.x > 0f ? 1 : -1, 0)
+                : new Vector2Int(0, value.y > 0f ? -1 : 1);
+            _padCell = new Vector2Int(
+                Mathf.Clamp(_padCell.x + step.x, 0, Grid.Columns - 1),
+                Mathf.Clamp(_padCell.y + step.y, 0, Grid.Rows - 1));
+
+            _lastPointer = CellScreenPosition(_padCell);
+            MoveLifted();
+            UpdatePreview();
+        }
+
+        private Vector2 CellScreenPosition(Vector2Int cell)
+        {
+            var local = new Vector3(cell.x * Pitch + cellSize * 0.5f, -cell.y * Pitch - cellSize * 0.5f, 0f);
+            return RectTransformUtility.WorldToScreenPoint(EventCamera, itemLayer.TransformPoint(local));
         }
 
         private void OnRotatePerformed(InputAction.CallbackContext context)
@@ -563,6 +640,7 @@ namespace InventorySystem.UI
             if (_rotate == null)
             {
                 _rotate = new InputAction("Rotate Item", InputActionType.Button, "<Keyboard>/r");
+                _rotate.AddBinding("<Gamepad>/rightShoulder");
                 _ownsRotate = true;
             }
         }

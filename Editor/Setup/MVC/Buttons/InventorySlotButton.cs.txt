@@ -19,7 +19,7 @@ namespace InventorySystem.UI
     /// </summary>
     [RequireComponent(typeof(CanvasGroup))]
     public sealed class InventorySlotButton : ButtonViewBase,
-        IPointerClickHandler, IBeginDragHandler, IDragHandler, IEndDragHandler, IDropHandler
+        IPointerClickHandler, IBeginDragHandler, IDragHandler, IEndDragHandler, IDropHandler, ISelectHandler
 #if HAS_BASIC_TOOLTIP
         , ITooltipSource
 #endif
@@ -41,6 +41,8 @@ namespace InventorySystem.UI
         private CanvasGroup _group;
         private RectTransform _rect;
         private Canvas _liftCanvas;
+        private bool _hasItem;
+        private bool _receiving;
 
         /// <summary>The panel this slot belongs to. Set by the panel.</summary>
         internal InventoryContentPanel Owner { get; set; }
@@ -89,10 +91,45 @@ namespace InventorySystem.UI
         // Pressable only while it holds an item. Things still drop onto an empty slot.
         private void SetPressable(bool pressable)
         {
-            if (IsInitialized && Interactable != pressable)
+            _hasItem = pressable;
+            ApplyInteractable();
+        }
+
+        /// <summary>
+        /// A gamepad player carries an item: even an empty slot can be selected then, to put it down there. Off again
+        /// when it is put down.
+        /// </summary>
+        internal void SetReceiving(bool receiving)
+        {
+            if (_receiving == receiving)
             {
-                Interactable = pressable;
+                return;
             }
+
+            _receiving = receiving;
+            ApplyInteractable();
+        }
+
+        private void ApplyInteractable()
+        {
+            var interactable = _hasItem || _receiving;
+            if (IsInitialized && Interactable != interactable)
+            {
+                Interactable = interactable;
+            }
+        }
+
+        /// <summary>Whether the d-pad / stick can move the selection from or to this slot (automatic navigation).</summary>
+        internal void SetNavigable(bool navigable)
+        {
+            if (!IsInitialized)
+            {
+                return;
+            }
+
+            var navigation = Button.navigation;
+            navigation.mode = navigable ? Navigation.Mode.Automatic : Navigation.Mode.None;
+            Button.navigation = navigation;
         }
 
         /// <summary>
@@ -152,6 +189,14 @@ namespace InventorySystem.UI
             if (Owner != null)
             {
                 Owner.OnSlotClicked(this, PointerEventData.InputButton.Left);
+            }
+        }
+
+        public void OnSelect(BaseEventData eventData)
+        {
+            if (Owner != null)
+            {
+                Owner.OnSlotFocused(this);
             }
         }
 

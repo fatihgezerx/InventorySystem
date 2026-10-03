@@ -281,11 +281,16 @@ front to the right, up tips it up. **Start Rotation**, **Field Of View**, **Fram
 | Escape | Close (`UI/Cancel`) |
 | Left drag | Move the whole stack: merge into the same item, swap with another (list), move into an empty slot |
 | Right drag | Move half the stack |
-| R while dragging | Rotate the item (Grid; project-wide action `RotateItem` if you add one) |
+| R / RB while dragging | Rotate the item (Grid; project-wide action `RotateItem`, which falls back to `R` and the right shoulder button if the action isn't in your project) |
 | Organize button | Pack the grid tightly (Grid) |
 | Drag onto another window | Transfer (e.g. player <-> chest) |
 | Drag out of the UI | Drop into the world, in front of the `Player` (`ItemSpawner`) |
 | Click an item | Select it: shown by Item Name, Item Description, Item Icon and the Examine View |
+| Gamepad: d-pad / stick | Move the selection over the slots; the selected item's details show |
+| Gamepad: Submit (A) on an item | Pick its stack up. Move to a slot (empty ones can be selected now) or, in a grid, move the cell cursor, then Submit again to put it down: move, merge, swap, or transfer to another window |
+| Gamepad: West (X) on an item | Pick up half the stack (project-wide action `PickHalf`, which falls back to West if the action isn't in your project) |
+| Gamepad: RB while carrying | Rotate the item (Grid) |
+| Gamepad: Cancel (B) while carrying | Put the item back (it does not close the window) |
 | Drag on the Examine View | Turn the selected item's model |
 
 While a window is open, the cursor is freed and the `Player` action map is paused (except the toggle).

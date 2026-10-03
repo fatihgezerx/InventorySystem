@@ -7,6 +7,7 @@ using TMPro;
 using UniMVC;
 using UnityEngine;
 using UnityEngine.EventSystems;
+using UnityEngine.InputSystem;
 using UnityEngine.UI;
 using Object = UnityEngine.Object;
 
@@ -21,7 +22,9 @@ namespace InventorySystem.UI
     /// </summary>
     /// <remarks>
     /// A panel only listens while it is visible, and redraws fully once when it is shown again. Left-drag
-    /// moves the whole stack, right-drag half of it.
+    /// moves the whole stack, right-drag half of it. With a gamepad, Submit on a slot picks its stack up, the d-pad
+    /// or stick moves it (to another slot, or over the grid's cells), and Submit puts it down; the "PickHalf" action
+    /// (West button) picks up half, Cancel puts it back. Moving the selection over a slot shows its details.
     /// </remarks>
     public abstract class InventoryContentPanel : PanelViewBase, IDropHandler
     {
@@ -30,6 +33,9 @@ namespace InventorySystem.UI
 
         private Inventory _subscribed;
         private Canvas _rootCanvas;
+        private InputAction _pickHalf;
+        private bool _ownsPickHalf;
+        private bool _receiving;
 
         /// <summary>The inventory shown, or null.</summary>
         public Inventory Inventory { get; private set; }
@@ -85,12 +91,37 @@ namespace InventorySystem.UI
 
         protected virtual void OnEnable()
         {
+            // The project's "PickHalf" action, or West on a gamepad: picks up half of the selected stack.
+            _pickHalf = InputSystem.actions != null ? InputSystem.actions.FindAction("PickHalf") : null;
+            if (_pickHalf == null)
+            {
+                _pickHalf = new InputAction("Pick Half", InputActionType.Button, "<Gamepad>/buttonWest");
+                _ownsPickHalf = true;
+            }
+
+            _pickHalf.performed += OnPickHalfPerformed;
+            _pickHalf.Enable();
+
+            InventoryDrag.PadHoldChanged += OnPadHoldChanged;
+            OnPadHoldChanged(InventoryDrag.IsActive && InventoryDrag.ViaPad);
+
             Subscribe();
             Rebuild();
         }
 
         protected virtual void OnDisable()
         {
+            _pickHalf.performed -= OnPickHalfPerformed;
+            if (_ownsPickHalf)
+            {
+                _pickHalf.Disable();
+                _pickHalf.Dispose();
+                _ownsPickHalf = false;
+            }
+
+            _pickHalf = null;
+            InventoryDrag.PadHoldChanged -= OnPadHoldChanged;
+
             Unsubscribe();
             CancelDrag();
             HideTooltip();
@@ -115,6 +146,10 @@ namespace InventorySystem.UI
             slot.Owner = this;
             slot.SlotIndex = slotIndex;
             slot.Initialize(UI);
+
+            // The template may have navigation switched off (it was for the mouse only); the d-pad needs it.
+            slot.SetNavigable(true);
+            slot.SetReceiving(_receiving);
             return slot;
         }
 
@@ -168,9 +203,54 @@ namespace InventorySystem.UI
 
         internal void OnSlotClicked(InventorySlotButton slot, PointerEventData.InputButton button)
         {
+            if (button == PointerEventData.InputButton.Left)
+            {
+                if (InventoryDrag.IsActive && InventoryDrag.ViaPad)
+                {
+                    // Submit on a slot while carrying: put the item down there. A mouse click instead forgets the carried item.
+                    if (UIInput.IsGamepadActive)
+                    {
+                        PutDown(slot);
+                        return;
+                    }
+
+                    InventoryDrag.SourcePanel.CancelDrag();
+                }
+                else if (UIInput.IsGamepadActive && !InventoryDrag.IsActive && TryGetSlot(slot.SlotIndex, out _))
+                {
+                    // Submit with a gamepad picks the stack up instead of just clicking it.
+                    PickUp(slot, half: false);
+                    return;
+                }
+            }
+
             if (TryGetSlot(slot.SlotIndex, out _))
             {
                 SlotClicked?.Invoke(this, slot.SlotIndex, button);
+            }
+        }
+
+        // The selection (d-pad / stick) reached a slot: a carried item follows it, otherwise its details show.
+        internal void OnSlotFocused(InventorySlotButton slot)
+        {
+            if (!UIInput.IsGamepadActive)
+            {
+                return;
+            }
+
+            if (InventoryDrag.IsActive && InventoryDrag.ViaPad)
+            {
+                if (RootCanvas != null)
+                {
+                    DragGhost.For(RootCanvas).MoveTo(SlotScreenPosition(slot));
+                }
+
+                return;
+            }
+
+            if (TryGetSlot(slot.SlotIndex, out _))
+            {
+                SlotClicked?.Invoke(this, slot.SlotIndex, PointerEventData.InputButton.Left);
             }
         }
 
@@ -189,8 +269,13 @@ namespace InventorySystem.UI
                 ? (inventorySlot.Amount + 1) / 2
                 : inventorySlot.Amount;
 
+            BeginHold(slot, inventorySlot, amount, eventData, viaPad: false);
+        }
+
+        private void BeginHold(InventorySlotButton slot, InventorySlot inventorySlot, int amount, PointerEventData eventData, bool viaPad)
+        {
             HideTooltip();
-            InventoryDrag.Begin(this, slot, slot.SlotIndex, amount, inventorySlot.Rotation);
+            InventoryDrag.Begin(this, slot, slot.SlotIndex, amount, inventorySlot.Rotation, viaPad);
             OnDragStarted(slot, inventorySlot, eventData);
             DragGhost.For(RootCanvas).MoveTo(eventData.position);
             SlotDragStarted?.Invoke(this, slot.SlotIndex);
@@ -231,6 +316,73 @@ namespace InventorySystem.UI
 
         /// <summary>A drop on the panel itself, not on a slot (e.g. an empty grid cell).</summary>
         public void OnDrop(PointerEventData eventData) => HandleDrop(null, eventData);
+
+        #endregion
+
+        #region Gamepad: pick up and put down
+
+        // Picks a stack (or half of it) up as a drag would, with a pointer standing on the slot, so everything built
+        // for the mouse - the ghost, the grid's lifted item and drop preview, rotating - works the same.
+        private void PickUp(InventorySlotButton slot, bool half)
+        {
+            if (!canDrag || RootCanvas == null || InventoryDrag.IsActive || !TryGetSlot(slot.SlotIndex, out var inventorySlot))
+            {
+                return;
+            }
+
+            var amount = half && inventorySlot.Amount > 1 ? (inventorySlot.Amount + 1) / 2 : inventorySlot.Amount;
+            BeginHold(slot, inventorySlot, amount, PadPointer(SlotScreenPosition(slot)), viaPad: true);
+        }
+
+        // Drops the carried item where Submit was pressed - this panel's slot, or the grid cell the cursor is on.
+        private void PutDown(InventorySlotButton target)
+        {
+            var source = InventoryDrag.SourcePanel;
+            HandleDrop(target, PadDropPointer(target));
+            source.CancelDrag();
+        }
+
+        private void OnPickHalfPerformed(InputAction.CallbackContext context)
+        {
+            if (this == null || InventoryDrag.IsActive || !UIInput.IsGamepadActive)
+            {
+                return;
+            }
+
+            var eventSystem = UnityEngine.EventSystems.EventSystem.current;
+            var selected = eventSystem != null ? eventSystem.currentSelectedGameObject : null;
+            if (selected != null && selected.TryGetComponent<InventorySlotButton>(out var slot) && slot.Owner == this)
+            {
+                PickUp(slot, half: true);
+            }
+        }
+
+        private void OnPadHoldChanged(bool holding)
+        {
+            _receiving = holding;
+            SetReceiving(holding);
+        }
+
+        /// <summary>While a gamepad player carries an item, every slot of the panel can be selected - empty ones too.</summary>
+        protected virtual void SetReceiving(bool receiving)
+        {
+        }
+
+        /// <summary>The pointer a drop with the gamepad stands for. By default: on the slot that was pressed.</summary>
+        protected virtual PointerEventData PadDropPointer(InventorySlotButton target) => PadPointer(SlotScreenPosition(target));
+
+        protected static PointerEventData PadPointer(Vector2 screenPosition) =>
+            new(UnityEngine.EventSystems.EventSystem.current) { button = PointerEventData.InputButton.Left, position = screenPosition };
+
+        /// <summary>The middle of <paramref name="slot"/> on screen.</summary>
+        protected Vector2 SlotScreenPosition(InventorySlotButton slot)
+        {
+            var rect = slot.RectTransform;
+            return RectTransformUtility.WorldToScreenPoint(EventCamera, rect.TransformPoint(rect.rect.center));
+        }
+
+        /// <summary>Puts the carried item back (for Cancel).</summary>
+        internal void CancelHold() => CancelDrag();
 
         #endregion
 
@@ -368,7 +520,13 @@ namespace InventorySystem.UI
 
         public static bool IsActive => SourcePanel != null;
 
-        public static void Begin(InventoryContentPanel panel, InventorySlotButton slot, int slotIndex, int amount, int rotation)
+        /// <summary>The item is carried by a gamepad player (picked up with Submit), not dragged by the pointer.</summary>
+        public static bool ViaPad { get; private set; }
+
+        /// <summary>Raised with true when a gamepad player picks an item up and with false when it is put down or cancelled.</summary>
+        public static event Action<bool> PadHoldChanged;
+
+        public static void Begin(InventoryContentPanel panel, InventorySlotButton slot, int slotIndex, int amount, int rotation, bool viaPad = false)
         {
             SourcePanel = panel;
             SourceSlot = slot;
@@ -377,7 +535,13 @@ namespace InventorySystem.UI
             Rotation = rotation;
             GrabOffset = Vector2Int.zero;
             Handled = false;
+            ViaPad = viaPad;
             slot.SetDragged(true);
+
+            if (viaPad)
+            {
+                PadHoldChanged?.Invoke(true);
+            }
         }
 
         public static void End()
@@ -390,6 +554,12 @@ namespace InventorySystem.UI
             DragGhost.HideCurrent();
             SourcePanel = null;
             SourceSlot = null;
+
+            if (ViaPad)
+            {
+                ViaPad = false;
+                PadHoldChanged?.Invoke(false);
+            }
         }
 
         // Keeps the static state clean when "Enter Play Mode Options" skips the domain reload.
@@ -398,6 +568,8 @@ namespace InventorySystem.UI
         {
             SourcePanel = null;
             SourceSlot = null;
+            ViaPad = false;
+            PadHoldChanged = null;
         }
     }
 
