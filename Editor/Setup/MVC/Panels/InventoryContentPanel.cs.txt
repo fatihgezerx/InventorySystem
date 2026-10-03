@@ -361,6 +361,20 @@ namespace InventorySystem.UI
         {
             _receiving = holding;
             SetReceiving(holding);
+
+#if HAS_BASIC_TOOLTIP
+            // Put down (or put back): the tooltip of the slot the selection is on comes back, now with what it holds.
+            if (!holding)
+            {
+                var eventSystem = UnityEngine.EventSystems.EventSystem.current;
+                var selected = eventSystem != null ? eventSystem.currentSelectedGameObject : null;
+                if (selected != null && UIInput.IsGamepadActive && selected.TryGetComponent<InventorySlotButton>(out var slot)
+                    && slot.Owner == this && selected.TryGetComponent<TooltipTrigger>(out var trigger))
+                {
+                    trigger.Refresh();
+                }
+            }
+#endif
         }
 
         /// <summary>While a gamepad player carries an item, every slot of the panel can be selected - empty ones too.</summary>

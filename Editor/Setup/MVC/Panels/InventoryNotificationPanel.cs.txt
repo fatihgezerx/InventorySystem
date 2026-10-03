@@ -1,4 +1,5 @@
 #if HAS_INVENTORY_SYSTEM && HAS_UNIMVC && HAS_EVENT_SYSTEM && HAS_INPUT_SYSTEM
+using System;
 using System.Collections.Generic;
 using UniMVC;
 using UnityEngine;
@@ -84,32 +85,37 @@ namespace InventorySystem.UI
         }
 
         // One frame loop for all toasts, alive only while some are on screen; hides the panel when the last one
-        // expires. Not tied to this object's active state, so it keeps counting down if a parent hides the panel.
+        // expires. Not tied to this object's active state, so it keeps counting down if a parent hides the panel;
+        // it ends quietly when the panel is destroyed.
         private async Awaitable TickToasts()
         {
             _ticking = true;
-            while (_active.Count > 0)
+            try
             {
-                await Awaitable.NextFrameAsync();
-                if (this == null)
+                while (_active.Count > 0)
                 {
-                    return;
-                }
+                    await Awaitable.NextFrameAsync(destroyCancellationToken);
 
-                var deltaTime = Time.unscaledDeltaTime;
-                for (var i = _active.Count - 1; i >= 0; i--)
-                {
-                    var toast = _active[i];
-                    toast.TimeLeft -= deltaTime;
-                    if (toast.TimeLeft <= 0f)
+                    var deltaTime = Time.unscaledDeltaTime;
+                    for (var i = _active.Count - 1; i >= 0; i--)
                     {
-                        Release(toast);
-                    }
-                    else if (toast.TimeLeft < fadeSeconds)
-                    {
-                        toast.Group.alpha = toast.TimeLeft / fadeSeconds;
+                        var toast = _active[i];
+                        toast.TimeLeft -= deltaTime;
+                        if (toast.TimeLeft <= 0f)
+                        {
+                            Release(toast);
+                        }
+                        else if (toast.TimeLeft < fadeSeconds)
+                        {
+                            toast.Group.alpha = toast.TimeLeft / fadeSeconds;
+                        }
                     }
                 }
+            }
+            catch (OperationCanceledException)
+            {
+                // Destroyed: nothing left to count down.
+                return;
             }
 
             _ticking = false;
