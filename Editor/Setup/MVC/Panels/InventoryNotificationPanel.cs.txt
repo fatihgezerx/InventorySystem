@@ -10,7 +10,8 @@ namespace InventorySystem.UI
     /// anything itself: <see cref="InventoryController"/> calls <see cref="Notify"/>, and the panel shows
     /// itself for as long as a toast is on screen, then hides again. Picking up more of an item that still
     /// has a toast on screen adds to that toast instead of stacking a new one. Toasts are pooled; timing is
-    /// unscaled, so they also fade while the game is paused.
+    /// unscaled, so they also fade while the game is paused. The timers run on a frame loop that exists only
+    /// while at least one toast is on screen (no <c>Update</c>), and stops by itself when the last one is gone.
     /// </summary>
     public sealed class InventoryNotificationPanel : PanelViewBase
     {
@@ -34,6 +35,7 @@ namespace InventorySystem.UI
 
         private readonly List<InventoryToastPanel> _active = new();
         private readonly Stack<InventoryToastPanel> _pool = new();
+        private bool _ticking;
 
         protected override void OnInitialize()
         {
@@ -74,29 +76,44 @@ namespace InventorySystem.UI
                 full ? fullColor : addedColor);
             toast.TimeLeft = displaySeconds + fadeSeconds;
             toast.Group.alpha = 1f;
+
+            if (!_ticking)
+            {
+                _ = TickToasts();
+            }
         }
 
-        private void Update()
+        // One frame loop for all toasts, alive only while some are on screen; hides the panel when the last one
+        // expires. Not tied to this object's active state, so it keeps counting down if a parent hides the panel.
+        private async Awaitable TickToasts()
         {
-            var deltaTime = Time.unscaledDeltaTime;
-            for (var i = _active.Count - 1; i >= 0; i--)
+            _ticking = true;
+            while (_active.Count > 0)
             {
-                var toast = _active[i];
-                toast.TimeLeft -= deltaTime;
-                if (toast.TimeLeft <= 0f)
+                await Awaitable.NextFrameAsync();
+                if (this == null)
                 {
-                    Release(toast);
+                    return;
                 }
-                else if (toast.TimeLeft < fadeSeconds)
+
+                var deltaTime = Time.unscaledDeltaTime;
+                for (var i = _active.Count - 1; i >= 0; i--)
                 {
-                    toast.Group.alpha = toast.TimeLeft / fadeSeconds;
+                    var toast = _active[i];
+                    toast.TimeLeft -= deltaTime;
+                    if (toast.TimeLeft <= 0f)
+                    {
+                        Release(toast);
+                    }
+                    else if (toast.TimeLeft < fadeSeconds)
+                    {
+                        toast.Group.alpha = toast.TimeLeft / fadeSeconds;
+                    }
                 }
             }
 
-            if (_active.Count == 0)
-            {
-                Hide();
-            }
+            _ticking = false;
+            Hide();
         }
 
         private InventoryToastPanel FindActive(ItemDefinition item, bool full)
