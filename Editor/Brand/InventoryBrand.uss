@@ -1,0 +1,177 @@
+/*
+ * Inventory System - brand sheet of the studio editor look.
+ * Sets the exact accent (#30A46C) on the kit's variables and styles the few elements only this system has
+ * (item and group rows, the icon slot, the grid cell preview). Added to every root by InventoryBrand.
+ * The doubled .vn-root raises the specificity above the kit's accent presets (.vn-root.vn-accent--green).
+ */
+
+.vn-root.vn-root {
+    --vn-accent: #30A46C;
+    --vn-accent-soft: rgba(48, 164, 108, 0.16);
+    --vn-accent-line: rgba(48, 164, 108, 0.55);
+    --vn-pressed: rgba(48, 164, 108, 0.24);
+}
+
+.vn-root.vn-root.vn-root--light {
+    --vn-accent: #1F8A57;
+    --vn-accent-soft: rgba(31, 138, 87, 0.14);
+    --vn-accent-line: rgba(31, 138, 87, 0.60);
+    --vn-pressed: rgba(31, 138, 87, 0.22);
+}
+
+/* ------------------------------------------------------------------ rows of the item and group lists */
+
+.inv-list {
+    max-height: 440px;
+}
+
+.inv-list .unity-collection-view__item.unity-collection-view__item--selected,
+.inv-list:focus .unity-collection-view__item.unity-collection-view__item--selected {
+    background-color: var(--vn-accent-soft);
+}
+
+.inv-row {
+    flex-direction: row;
+    align-items: center;
+    flex-grow: 1;
+    min-width: 0;
+    padding: 0 4px;
+}
+
+.inv-row > * {
+    margin-right: 6px;
+}
+
+.inv-row > *:last-child {
+    margin-right: 0;
+}
+
+.inv-row__text {
+    flex-grow: 1;
+    flex-shrink: 1;
+    min-width: 0;
+}
+
+.inv-row__name {
+    margin: 0;
+    flex-grow: 1;
+}
+
+.inv-row__summary {
+    margin: 1px 0 0 4px;
+    padding: 0;
+    font-size: 10px;
+    color: var(--vn-text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.inv-row__count {
+    margin: 0;
+    padding: 0;
+    font-size: 10px;
+    color: var(--vn-text-muted);
+    min-width: 46px;
+    -unity-text-align: middle-right;
+}
+
+/* The icon slot: shows the sprite, accepts a sprite dropped on it. */
+.inv-thumb {
+    width: 34px;
+    height: 34px;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    border-width: 1px;
+    border-radius: 5px;
+    border-color: var(--vn-card-border);
+    background-color: var(--vn-track);
+    -unity-background-scale-mode: scale-to-fit;
+}
+
+.inv-thumb.inv-thumb--drop {
+    border-color: var(--vn-accent);
+    background-color: var(--vn-accent-soft);
+}
+
+.inv-thumb--large {
+    width: 44px;
+    height: 44px;
+}
+
+/* ------------------------------------------------------------------ details */
+
+.inv-chipbar {
+    flex-direction: row;
+    flex-wrap: wrap;
+    margin: 0 0 6px 0;
+}
+
+.inv-chipbar > * {
+    margin-right: 4px;
+}
+
+.inv-summary {
+    flex-direction: row;
+    align-items: center;
+    margin: 0 0 6px 0;
+}
+
+.inv-summary > * {
+    margin-right: 6px;
+}
+
+.inv-desc {
+    flex-grow: 1;
+    min-height: 54px;
+    margin: 0;
+}
+
+.inv-desc .unity-base-text-field__input {
+    white-space: normal;
+}
+
+.inv-cells {
+    width: 64px;
+    height: 64px;
+    flex-shrink: 0;
+    margin: 0 8px 0 0;
+    border-width: 1px;
+    border-radius: 5px;
+    border-color: var(--vn-card-border);
+    background-color: var(--vn-track);
+}
+
+.inv-grid-fields {
+    flex-grow: 1;
+    flex-shrink: 1;
+    min-width: 0;
+}
+
+.inv-compile {
+    flex-direction: row;
+    align-items: center;
+}
+
+.inv-compile > Button {
+    flex-grow: 1;
+    min-height: 30px;
+    margin: 0 10px 0 0;
+}
+
+.inv-compile__text {
+    flex-grow: 1;
+    flex-shrink: 1;
+    min-width: 0;
+    flex-basis: 0;
+    margin: 0;
+    white-space: normal;
+}
+
+.inv-tracker {
+    width: 0;
+    height: 0;
+    margin: 0;
+    padding: 0;
+}

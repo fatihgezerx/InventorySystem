@@ -50,6 +50,7 @@ namespace InventorySystem.Setup
             Dependency.Repository("Pool System", "PoolSystem.Runtime", "HAS_POOL_SYSTEM", "https://github.com/fatihgezerx/PoolSystem", "Assets/Scripts/PoolSystem", "for taking dropped and examined items from pools instead of instantiating them"),
             Dependency.Repository("Easy UI", "EasyUI.Editor", "HAS_EASYUI", "https://github.com/fatihgezerx/EasyUI", "Assets/Scripts/EasyUI", "for designing the inventory UI in Easy UI, set up by roles"),
             Dependency.Repository("Basic Tooltip", "BasicTooltip.Runtime", "HAS_BASIC_TOOLTIP", "https://github.com/fatihgezerx/BasicTooltip", "Assets/Scripts/BasicTooltip", "for item tooltips on hover"),
+            Dependency.Repository("Veneer", "Veneer.Editor", "HAS_VENEER", "https://github.com/fatihgezerx/Veneer", "Assets/Scripts/Veneer", "for the studio look of the Inventory Data and Collectible Inspectors"),
         };
 
         private static AddAndRemoveRequest _packageRequest;

@@ -236,7 +236,8 @@ namespace InventorySystem
         private static string NormalizeNewlines(string text) => text.Replace("\r\n", "\n");
 
         // "Health Potion" -> "HealthPotion", "ak-47" -> "Ak47", "9mm Ammo" -> "_9mmAmmo".
-        private static string ToIdentifier(string raw)
+        // Internal so InventoryDataCheck can predict the member names Compile will write.
+        internal static string ToIdentifier(string raw)
         {
             if (string.IsNullOrWhiteSpace(raw))
             {
