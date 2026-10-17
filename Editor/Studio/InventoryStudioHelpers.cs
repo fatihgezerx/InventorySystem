@@ -42,13 +42,14 @@ namespace InventorySystem
         /// Adds an invisible element under <paramref name="parent"/> that calls <paramref name="changed"/> whenever anything in
         /// <paramref name="so"/> changes (edits, Undo, Redo). It stops with the parent, so nothing leaks.
         /// </summary>
-        public static void Tracker(VisualElement parent, SerializedObject so, Action changed)
+        public static VisualElement Tracker(VisualElement parent, SerializedObject so, Action changed)
         {
             var host = new VisualElement();
             host.AddToClassList("inv-tracker");
             host.pickingMode = PickingMode.Ignore;
             host.TrackSerializedObjectValue(so, changedObject => changed());
             parent.Add(host);
+            return host;
         }
 
         /// <summary>Shows <paramref name="sprite"/> in an icon slot, or its placeholder glyph when there is none.</summary>

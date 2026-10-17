@@ -106,9 +106,17 @@ button that jumps to the item or group.
 - **Groups tab** - the groups as rows (drag to reorder, name, capacity, item count, remove) and, for the selected group, its type
   (Unlimited / Weight / Max slots / Grid) with only the numbers that type uses.
 
+The Inventory Data Inspector is drawn from a default layout that Inventory System ships; customise it in
+`Tools > Veneer > Inspector Designer` (drop the `InventoryData` script in, press **Customize**; **Reset to system default**
+returns to the shipped design). The state pill, the Compile card, the hint rows and the Items and Groups panes are system
+items: they can be moved or hidden, not changed.
+
 **Collectible.** *Pickup* tab: the item it gives (read-only, with its icon and a button that selects the Inventory Data - Compile
 assigns it), Amount, Collect On Trigger and the Collector Tag (shown while Collect On Trigger is on). *Events* tab: On Take,
-On Release, On Inventory Full. Several Collectibles can be edited together.
+On Release, On Inventory Full. Several Collectibles can be edited together. The Collectible Inspector is drawn from a default
+layout that Inventory System ships; customise it in `Tools > Veneer > Inspector Designer` (drop the `Collectible` script in, press
+**Customize**; **Reset to system default** returns to the shipped design). The state pill, the item row and the "no item" hint are
+system items: they can be moved or hidden, not changed.
 
 ## Collecting
 

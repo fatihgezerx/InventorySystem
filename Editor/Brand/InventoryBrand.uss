@@ -169,6 +169,13 @@
     white-space: normal;
 }
 
+/* A layout card that only holds a pane (item or group list): no box of its own, the pane draws its boxes. */
+.vn-card.inv-bare {
+    background-color: rgba(0, 0, 0, 0);
+    border-width: 0;
+    padding: 0;
+}
+
 .inv-tracker {
     width: 0;
     height: 0;
