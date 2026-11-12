@@ -8,7 +8,7 @@ using UnityEngine.UI;
 namespace InventorySystem.UI
 {
     /// <summary>
-    /// The selected item: its name and description (translated with LocalizationSystem), its icon, and its 3D model
+    /// The selected item: its name, type and description (translated with LocalizationSystem), its weight and value, its icon, and its 3D model
     /// in an <see cref="InventoryExamineView"/>. The <see cref="InventoryPanel"/> it sits in selects an item when it
     /// is clicked; the panel then follows that slot, and empties when the slot does. Every field is optional.
     /// </summary>
@@ -20,6 +20,9 @@ namespace InventorySystem.UI
         // Each may be several elements (e.g. one in every group's popup), all showing the same item.
         [HideInInspector] [SerializeField] private TMP_Text[] nameTexts = Array.Empty<TMP_Text>();
         [HideInInspector] [SerializeField] private TMP_Text[] descriptionTexts = Array.Empty<TMP_Text>();
+        [HideInInspector] [SerializeField] private TMP_Text[] typeTexts = Array.Empty<TMP_Text>();
+        [HideInInspector] [SerializeField] private TMP_Text[] weightTexts = Array.Empty<TMP_Text>();
+        [HideInInspector] [SerializeField] private TMP_Text[] valueTexts = Array.Empty<TMP_Text>();
         [HideInInspector] [SerializeField] private Image[] icons = Array.Empty<Image>();
         [HideInInspector] [SerializeField] private InventoryExamineView examine;
 
@@ -145,6 +148,10 @@ namespace InventorySystem.UI
                 }
             }
 
+            Fill(typeTexts, item != null ? Localized(item.Category) : string.Empty);
+            Fill(weightTexts, item != null ? ItemText.Weight(item.Weight) : string.Empty);
+            Fill(valueTexts, item != null ? ItemText.Value(item.Value) : string.Empty);
+
             foreach (var icon in icons)
             {
                 if (icon != null)
@@ -167,6 +174,17 @@ namespace InventorySystem.UI
             SelectionChanged?.Invoke();
         }
 
+        private static void Fill(TMP_Text[] texts, string text)
+        {
+            foreach (var label in texts)
+            {
+                if (label != null)
+                {
+                    label.SetText(text);
+                }
+            }
+        }
+
         private static string Localized(string text) =>
 #if HAS_LOCALIZATION_SYSTEM
             LocalizationSystem.LocalizationRuntime.Get(text);
@@ -177,7 +195,8 @@ namespace InventorySystem.UI
 #if HAS_LOCALIZATION_SYSTEM
         // Filled by code, already in the current language: LocalizationSystem's "Sync Project" leaves these
         // labels alone.
-        bool LocalizationSystem.ILocalizedByCode.Fills(Component text) => text is TMP_Text label && (Array.IndexOf(nameTexts, label) >= 0 || Array.IndexOf(descriptionTexts, label) >= 0);
+        bool LocalizationSystem.ILocalizedByCode.Fills(Component text) => text is TMP_Text label && (Array.IndexOf(nameTexts, label) >= 0 || Array.IndexOf(descriptionTexts, label) >= 0
+            || Array.IndexOf(typeTexts, label) >= 0 || Array.IndexOf(weightTexts, label) >= 0 || Array.IndexOf(valueTexts, label) >= 0);
 #endif
     }
 }

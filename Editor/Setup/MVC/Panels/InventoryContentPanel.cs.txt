@@ -104,6 +104,9 @@ namespace InventorySystem.UI
 
             InventoryDrag.PadHoldChanged += OnPadHoldChanged;
             OnPadHoldChanged(InventoryDrag.IsActive && InventoryDrag.ViaPad);
+#if HAS_LOCALIZATION_SYSTEM
+            LocalizationSystem.LocalizationRuntime.LanguageChanged += OnLanguageChanged;
+#endif
 
             Subscribe();
             Rebuild();
@@ -121,11 +124,25 @@ namespace InventorySystem.UI
 
             _pickHalf = null;
             InventoryDrag.PadHoldChanged -= OnPadHoldChanged;
+#if HAS_LOCALIZATION_SYSTEM
+            LocalizationSystem.LocalizationRuntime.LanguageChanged -= OnLanguageChanged;
+#endif
 
             Unsubscribe();
             CancelDrag();
             HideTooltip();
         }
+
+#if HAS_LOCALIZATION_SYSTEM
+        // The slots' names and types are filled in the language of the moment: drawn again in the new one.
+        private void OnLanguageChanged()
+        {
+            if (Inventory != null)
+            {
+                Rebuild();
+            }
+        }
+#endif
 
         #region Drawing
 

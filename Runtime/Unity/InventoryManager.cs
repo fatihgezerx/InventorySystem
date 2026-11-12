@@ -16,7 +16,8 @@ namespace InventorySystem
     /// and the other shortcuts find it by the item's <see cref="ItemTypes"/>. With a single group there is one inventory,
     /// <see cref="Main"/>. Published events: <see cref="ItemAddedEvent"/>, <see cref="ItemRemovedEvent"/>,
     /// <see cref="InventoryFullEvent"/>, <see cref="SlotChangedEvent"/>, <see cref="SlotCountChangedEvent"/>
-    /// and <see cref="InventoryChangedEvent"/>, each carrying the inventory it happened in. Other inventories (chests,
+    /// and <see cref="InventoryChangedEvent"/>, each carrying the inventory it happened in - and <see cref="GoldChangedEvent"/>
+    /// for the player's <see cref="Gold"/>, which belongs to no inventory. Other inventories (chests,
     /// shops...) can be made with <see cref="Inventory.Create"/> and <see cref="Database"/>; they report through their
     /// own C# events.
     /// </remarks>
@@ -112,6 +113,7 @@ namespace InventorySystem
             Main = null;
             Database = null;
             Data = null;
+            Gold = 0;
 
             if (hadMain)
             {
@@ -143,6 +145,60 @@ namespace InventorySystem
                 ? inventory
                 : throw new ArgumentException($"[InventoryManager] '{type}' is not an item of this InventoryData. " +
                                               "Add it and press Compile.", nameof(type));
+        }
+
+        #endregion
+
+        #region Gold
+
+        /// <summary>
+        /// The gold the player carries. General - it belongs to no item group, so it needs no item in the
+        /// <see cref="InventoryData"/> and no slot. Starts at 0 and is reset by <see cref="Initialize"/> and <see cref="Shutdown"/>.
+        /// </summary>
+        public static int Gold { get; private set; }
+
+        /// <summary>Adds <paramref name="amount"/> gold (nothing for 0 or less) and raises <see cref="GoldChangedEvent"/>.</summary>
+        public static void AddGold(int amount)
+        {
+            if (amount <= 0)
+            {
+                return;
+            }
+
+            ChangeGold((int)Math.Min((long)Gold + amount, int.MaxValue));
+        }
+
+        /// <summary>Whether the player has at least <paramref name="amount"/> gold.</summary>
+        public static bool HasGold(int amount) => Gold >= amount;
+
+        /// <summary>
+        /// Takes <paramref name="amount"/> gold and raises <see cref="GoldChangedEvent"/> - or, when the player doesn't have
+        /// that much, takes nothing and returns false.
+        /// </summary>
+        public static bool TrySpendGold(int amount)
+        {
+            if (amount < 0 || amount > Gold)
+            {
+                return false;
+            }
+
+            ChangeGold(Gold - amount);
+            return true;
+        }
+
+        /// <summary>Sets the gold to <paramref name="amount"/> (at least 0), e.g. when loading a save, and raises <see cref="GoldChangedEvent"/>.</summary>
+        public static void SetGold(int amount) => ChangeGold(Math.Max(0, amount));
+
+        private static void ChangeGold(int gold)
+        {
+            if (gold == Gold)
+            {
+                return;
+            }
+
+            var delta = gold - Gold;
+            Gold = gold;
+            EventManager.Invoke(new GoldChangedEvent(gold, delta));
         }
 
         #endregion
@@ -235,6 +291,7 @@ namespace InventorySystem
             Main = null;
             Database = null;
             Data = null;
+            Gold = 0;
         }
     }
 }

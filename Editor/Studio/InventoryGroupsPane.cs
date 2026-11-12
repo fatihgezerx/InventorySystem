@@ -225,7 +225,7 @@ namespace InventorySystem
                 nb.VisibleWhen(cells, typePath, (int)InventoryType.Grid);
 
                 nb.VisibleWhen(nb.Hint("No limit: slots are added as long as items keep coming.", "info"), typePath, (int)InventoryType.Unlimited);
-                nb.VisibleWhen(nb.Hint("Unlimited slots, but the total weight can't go over Max Weight. Every item gets a Weight field.", "info"),
+                nb.VisibleWhen(nb.Hint("Unlimited slots, but the total weight can't go over Max Weight. Each item's Weight counts toward it.", "info"),
                     typePath, (int)InventoryType.Weight);
                 nb.VisibleWhen(nb.Hint("A fixed number of slots. Stackable items fill their stacks up to Max Stack before taking a new slot; " +
                                        "everything else takes a new slot every time.", "info"), typePath, (int)InventoryType.MaxSlot);

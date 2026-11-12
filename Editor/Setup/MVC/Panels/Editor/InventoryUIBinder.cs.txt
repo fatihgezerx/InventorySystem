@@ -152,6 +152,7 @@ namespace InventorySystem.UIEditor
                 .Objects("contents", multi ? System.Array.Empty<Object>() : contents.ToArray())
                 .Objects("groupPopups", popups.ToArray())
                 .Objects("capacityTexts", Labels(build, InventoryRoles.CapacityText))
+                .Objects("goldTexts", Labels(build, InventoryRoles.GoldText))
                 .Objects("weightSliders", weights.ToArray())
                 .Objects("organizeButtons", organizeButtons.ToArray())
                 .Ref("details", details)
@@ -366,7 +367,9 @@ namespace InventorySystem.UIEditor
 
         // The Slot Template as an InventorySlotButton, with its icon and amount.
         private static InventorySlotButton BuildSlot(EasyUIBuild build, GameObject slotObject) =>
-            BuildSlotTemplate(slotObject, build.FindInside(slotObject, InventoryRoles.ItemIcon), build.FindInside(slotObject, InventoryRoles.SlotAmount));
+            BuildSlotTemplate(slotObject, build.FindInside(slotObject, InventoryRoles.ItemIcon), build.FindInside(slotObject, InventoryRoles.SlotAmount),
+                Label(build.FindInside(slotObject, InventoryRoles.SlotName)), Label(build.FindInside(slotObject, InventoryRoles.SlotType)),
+                Label(build.FindInside(slotObject, InventoryRoles.SlotWeight)), Label(build.FindInside(slotObject, InventoryRoles.SlotValue)));
 
         // Every group's popup: its slot container(s) become content panels, and the popup script is added to the box,
         // with its tab button wired to it. A popup copies the Slot Template inside it - or, without one, the shared one.
@@ -479,8 +482,10 @@ namespace InventorySystem.UIEditor
 
         #region Content
 
-        // The Slot Template becomes an InventorySlotButton, with an icon and an amount (made when the panel has none).
-        private static InventorySlotButton BuildSlotTemplate(GameObject go, GameObject iconObject, GameObject amountObject)
+        // The Slot Template becomes an InventorySlotButton, with an icon and an amount (made when the panel has none) and,
+        // for a list row, whichever of the name, type, weight and value texts it has.
+        private static InventorySlotButton BuildSlotTemplate(GameObject go, GameObject iconObject, GameObject amountObject,
+            TMP_Text nameText, TMP_Text typeText, TMP_Text weightText, TMP_Text valueText)
         {
             if (!go.TryGetComponent<Button>(out var button))
             {
@@ -526,7 +531,14 @@ namespace InventorySystem.UIEditor
             }
 
             var slot = go.AddComponent<InventorySlotButton>();
-            new Fields(slot).Ref("icon", icon).Ref("amountText", amount).Apply();
+            new Fields(slot)
+                .Ref("icon", icon)
+                .Ref("amountText", amount)
+                .Ref("nameText", nameText)
+                .Ref("typeText", typeText)
+                .Ref("weightText", weightText)
+                .Ref("valueText", valueText)
+                .Apply();
             go.SetActive(false);
             return slot;
         }
@@ -727,8 +739,12 @@ namespace InventorySystem.UIEditor
 
             var names = Labels(build, InventoryRoles.DetailsName);
             var descriptions = Labels(build, InventoryRoles.DetailsDescription);
+            var types = Labels(build, InventoryRoles.DetailsType);
+            var weights = Labels(build, InventoryRoles.DetailsWeight);
+            var values = Labels(build, InventoryRoles.DetailsValue);
             var examineImage = build.Find(InventoryRoles.ExamineView);
-            if (icons.Count == 0 && names.Length == 0 && descriptions.Length == 0 && examineImage == null)
+            if (icons.Count == 0 && names.Length == 0 && descriptions.Length == 0 && types.Length == 0 && weights.Length == 0
+                && values.Length == 0 && examineImage == null)
             {
                 return null;
             }
@@ -739,6 +755,9 @@ namespace InventorySystem.UIEditor
             new Fields(panel)
                 .Objects("nameTexts", names)
                 .Objects("descriptionTexts", descriptions)
+                .Objects("typeTexts", types)
+                .Objects("weightTexts", weights)
+                .Objects("valueTexts", values)
                 .Objects("icons", icons.ToArray())
                 .Ref("examine", examine)
                 .Apply();

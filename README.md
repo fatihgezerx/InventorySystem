@@ -52,7 +52,9 @@ for its Inspector). The UI is designed in EasyUI (see
 | Prefab | The world object that gives this item (optional) |
 | Stackable / Max Stack | Stackable items pile up in one slot up to Max Stack, then open a new slot. Other items (e.g. a weapon) take a new slot every time |
 | Description | What the item is, e.g. for a tooltip (optional). Read it as `item.Description` |
-| Weight | **Weight mode only.** Weight of one item |
+| Type | What kind of item it is, e.g. `Book` or `Arrow`: the text a list row's Slot Type and the details' Item Type show (translatable). Optional. Read it as `item.Category` |
+| Weight | Weight of one item. **Weight mode** limits the total by it; the Slot Weight and Item Weight texts show it in every mode |
+| Value | What one item is worth (gold...), shown by the Slot Value and Item Value texts. Optional. Read it as `item.Value` |
 | Size / Can Rotate | **Grid mode only.** Width x Height of the item's rectangle, in cells (e.g. `1 x 1` for ammo, `3 x 2` for a handgun, `9 x 2` for a rifle). The preview turns red if it can't fit the grid. With Can Rotate, the item may be turned 90° to fit |
 
 **3. Click Compile.** It:
@@ -136,6 +138,31 @@ What happens to the object itself is wired in the Inspector:
 | **On Take** | Everything in the object went into the inventory | `GameObject > SetActive(false)` (Compile wires this by default). With PoolSystem, an object taken from a pool also goes back to it by itself - don't wire `Poolable > ReleaseSelf` too |
 | **On Release** | The object was just dropped from the inventory back into the world, with its position and Amount set | Effects, sounds... |
 | **On Inventory Full** | The inventory couldn't take everything | A "full" sound or message |
+
+### Gold
+
+Gold is the player's general money: it belongs to no item group, needs no item in the InventoryData and takes no slot.
+`InventoryManager.Gold` holds it (0 at the start; `Initialize` and `Shutdown` reset it).
+
+A `GoldCollectible` gives gold when `Collect()` is called - add it to the object by hand (**Add Component > Gold Collectible**):
+
+- **With InteractionSystem:** drag the `GoldCollectible` into the `Interactable`'s **On Interact** and pick `Collect`.
+- **From code:** `goldCollectible.Collect()`.
+
+**Random amount** off: the object always gives **Amount**. On: it gives a random whole number between the **Amount range**'s
+minimum and maximum (both included), rolled anew at each collect; the slider reaches `GoldCollectible.MaxSliderGold` (1000) - change the
+widget's range in the Inspector Designer for bigger sums. **On Collected** fires after the gold was added; adding the component wires
+`GameObject > SetActive(false)` to it, so the object leaves the world (with PoolSystem, an object taken from a pool also goes back to it
+by itself). An object gives its gold once per time it is enabled.
+
+In code:
+
+```csharp
+InventoryManager.AddGold(25);                 // nothing for 0 or less
+InventoryManager.HasGold(100);
+if (InventoryManager.TrySpendGold(100)) { }   // false and nothing taken when there isn't enough
+InventoryManager.SetGold(loadedGold);         // e.g. loading a save
+```
 
 ### Dropping items back into the world
 
@@ -246,17 +273,20 @@ set up when it is built - nothing to wire by hand:
 | Tooltip > Shows Tooltip | next to Slot Template (BasicTooltip's role) | No | Hovering an item shows its name, description and icon in BasicTooltip's tooltip, designed in this panel or any other: every slot gives its item's (`ITooltipSource`) |
 | Item Icon | Image | No | An item's icon. **Where it sits says which item**: inside the Slot Template the slot's (made when missing), inside the toast box the notification's, anywhere else the item clicked. Several elements can have it |
 | Slot Amount | Text | No | Inside the Slot Template: the stack's amount; made when missing. It may sit inside the Item Icon (to lie over it): it is moved up to the slot, so it doesn't turn with a rotated grid item |
+| Slot Name / Slot Type / Slot Weight / Slot Value | Text | No | **List rows**: inside the Slot Template, the item's name, its Type, the weight of one and what one is worth - the columns of a row (a Button's own Text part can be the Slot Name). A weight or value of 0 reads as a dash (`ItemText`). Each is optional; they redraw when the language changes |
 | Cell Template | Image | No | Grid: one empty background cell, copied for every cell (the items lie over the cells); hidden itself. Without it, cells are made from the Slot Template's look |
 | Capacity Text | Text | No | "12.5 / 50", "8 / 20" or used / total cells, whatever the inventory's type |
+| Gold Text | Text | No | The player's gold (`InventoryManager.Gold`), e.g. "1250". **Set when the gold changes** (a Gold Collectible, `AddGold`, `TrySpendGold`), not each time the window opens; it stays right while the window is closed. Several elements can have it |
 | Weight Bar | Slider | No | Weight: set to total / max weight (the player can't drag it); hidden in other types |
 | Close Button / Organize Button | Button | No | `InventoryCloseButton` / `InventoryOrganizeButton` (Grid) |
 | Item Name / Item Description | Text | No | The item clicked |
+| Item Type / Item Weight / Item Value | Text | No | The item clicked: its Type, weight and worth |
 | Examine View | Raw Image | No | `InventoryExamineView`: the item clicked in 3D |
 | Drop Button | Button | No | `InventoryDropButton`: drops the selected item into the world |
 | Use Button | Button | No | `InventoryUseButton`: raises the window's `UseRequested` (inventory, slot) for the selected item, for your code to use it; does nothing by itself yet |
 | Toast Message | Text | No | A notification. **The box holding it is the toast template** (put an Item Icon next to it for the item's icon), copied for every notification; **its parent stacks them** (`InventoryNotificationPanel`) |
 
-The texts filled by code (Slot Amount, Capacity Text, Item Name, Item Description, Toast Message) can't also be
+The texts filled by code (Slot Amount, Slot Name / Type / Weight / Value, Capacity Text, Gold Text, Item Name, Item Type / Weight / Value, Item Description, Toast Message) can't also be
 LocalizationSystem's *Localized Text*: they are shown translated already.
 
 When the panel is built:
@@ -355,6 +385,7 @@ code (the capacity counter, the item's name and description) tell Sync Project s
 | `ItemRemovedEvent` | Items were removed | `Item`, `Amount` removed |
 | `InventoryFullEvent` | An add didn't fully fit | `Item`, `Amount` that didn't fit |
 | `InventoryChangedEvent` | Anything changed; once per call, after the others | - |
+| `GoldChangedEvent` | The gold changed (no inventory: gold belongs to no group) | `Gold` now, `Delta` (negative when spent) |
 
 ```csharp
 private void OnEnable()  => EventManager.Register<ItemAddedEvent>(OnItemAdded);

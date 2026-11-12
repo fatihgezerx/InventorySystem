@@ -46,8 +46,17 @@ namespace InventorySystem
         [Tooltip("What the item is, e.g. for a tooltip. Optional.")]
         [SerializeField] private string description = string.Empty;
 
-        [Tooltip("Weight of one item. Used only by Weight inventories.")]
+        [Tooltip("Weight of one item. Limits Weight inventories, and any Weight text in the UI shows it.")]
         [Min(0f)] [SerializeField] private float weight = 1f;
+
+#if HAS_LOCALIZATION_SYSTEM
+        [LocalizationSystem.Localize]
+#endif
+        [Tooltip("What kind of item it is, shown by a list's Type text, e.g. \"Book\" or \"Arrow\". Optional.")]
+        [SerializeField] private string category = string.Empty;
+
+        [Tooltip("What one item is worth (e.g. in gold). Shown by the Value texts in the UI. Optional.")]
+        [Min(0)] [SerializeField] private int value;
 
         [Tooltip("Width x height of the rectangle the item covers, in cells (e.g. 3 x 2 for a handgun, 9 x 2 for a rifle). Used only by Grid inventories.")]
         [SerializeField] private Vector2Int size = Vector2Int.one;
@@ -77,8 +86,14 @@ namespace InventorySystem
         /// <summary>How many fit in one slot: the Max Stack value for stackable items, 1 otherwise.</summary>
         public int MaxStack => stackable ? maxStack : 1;
 
-        /// <summary>Weight of one item. Only <see cref="InventoryType.Weight"/> inventories limit it.</summary>
+        /// <summary>Weight of one item. Only <see cref="InventoryType.Weight"/> inventories limit it; the UI shows it in every mode.</summary>
         public float Weight => weight;
+
+        /// <summary>What kind of item it is, as entered in <see cref="InventoryData"/>, e.g. "Book". May be empty.</summary>
+        public string Category => category;
+
+        /// <summary>What one item is worth. 0 when not set.</summary>
+        public int Value => value;
 
         /// <summary>
         /// Width (x) and height (y), in cells, of the rectangle the item covers in a

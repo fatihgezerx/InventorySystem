@@ -85,6 +85,25 @@ namespace InventorySystem
         }
     }
 
+    /// <summary>
+    /// The player's gold changed (<see cref="InventoryManager.AddGold"/>, <see cref="InventoryManager.TrySpendGold"/>,
+    /// <see cref="InventoryManager.SetGold"/>). Not tied to any inventory - gold belongs to no item group.
+    /// </summary>
+    public readonly struct GoldChangedEvent
+    {
+        /// <summary>The gold now.</summary>
+        public readonly int Gold;
+
+        /// <summary>How much it changed by: positive when gold was gained, negative when it was spent.</summary>
+        public readonly int Delta;
+
+        public GoldChangedEvent(int gold, int delta)
+        {
+            Gold = gold;
+            Delta = delta;
+        }
+    }
+
     /// <summary>Anything changed; raised once per call, after the other events - e.g. to refresh a weight bar.</summary>
     public readonly struct InventoryChangedEvent
     {

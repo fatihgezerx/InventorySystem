@@ -460,6 +460,7 @@ namespace InventorySystem
             nb.Card("Item", "tag", () =>
             {
                 nb.Object(itemPath + ".icon", "Icon", typeof(Sprite));
+                nb.Field(itemPath + ".category", "Type");
                 nb.Object(itemPath + ".prefab", "Prefab", typeof(GameObject));
                 nb.Chip(itemPath + ".stackable", "Stackable", "layers");
                 VisualElement stack = nb.Number(itemPath + ".maxStack", "Max stack", "per slot");
@@ -474,8 +475,12 @@ namespace InventorySystem
                 nb.Add(row);
             });
 
-            VisualElement weightCard = nb.Card("Weight", "scale", () => nb.Number(itemPath + ".weight", "Weight"));
-            nb.VisibleWhen(weightCard, typePath, (int)InventoryType.Weight);
+            // Weight limits Weight inventories, and both numbers are shown by the UI's Weight and Value texts in every mode.
+            nb.Card("Weight and value", "scale", () =>
+            {
+                nb.Number(itemPath + ".weight", "Weight");
+                nb.Number(itemPath + ".value", "Value");
+            });
 
             var preview = new InventoryCellPreview();
             VisualElement gridCard = nb.Card("Grid footprint", "grid", () =>

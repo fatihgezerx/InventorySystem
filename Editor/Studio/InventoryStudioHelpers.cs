@@ -156,6 +156,8 @@ namespace InventorySystem
             item.FindPropertyRelative("maxStack").intValue = 10;
             item.FindPropertyRelative("description").stringValue = string.Empty;
             item.FindPropertyRelative("weight").floatValue = 1f;
+            item.FindPropertyRelative("category").stringValue = string.Empty;
+            item.FindPropertyRelative("value").intValue = 0;
             item.FindPropertyRelative("size").vector2IntValue = Vector2Int.one;
             item.FindPropertyRelative("canRotate").boolValue = true;
         }

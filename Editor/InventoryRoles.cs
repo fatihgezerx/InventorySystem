@@ -31,14 +31,22 @@ namespace InventorySystem
         public const string Draggable = "inventory.slot.draggable";
         public const string DropToWorld = "inventory.slot.drop-to-world";
         public const string SlotAmount = "inventory.slot-amount";
+        public const string SlotName = "inventory.slot-name";
+        public const string SlotType = "inventory.slot-type";
+        public const string SlotWeight = "inventory.slot-weight";
+        public const string SlotValue = "inventory.slot-value";
         public const string CellTemplate = "inventory.cell-template";
         public const string CapacityText = "inventory.capacity-text";
+        public const string GoldText = "inventory.gold-text";
         public const string WeightBar = "inventory.weight-bar";
         public const string CloseButton = "inventory.close-button";
         public const string OrganizeButton = "inventory.organize-button";
         public const string ItemIcon = "inventory.item-icon";
         public const string DetailsName = "inventory.details-name";
         public const string DetailsDescription = "inventory.details-description";
+        public const string DetailsType = "inventory.details-type";
+        public const string DetailsWeight = "inventory.details-weight";
+        public const string DetailsValue = "inventory.details-value";
         public const string ExamineView = "inventory.examine-view";
         public const string DropButton = "inventory.drop-button";
         public const string UseButton = "inventory.use-button";
@@ -172,8 +180,34 @@ namespace InventorySystem
             {
                 Conflicts = FilledByCode
             };
+            yield return new EasyUIRole(InventoryRoles.SlotName, "Inventory/Slot Name",
+                "Inside the Slot Template: the item's name (a Button's own Text part works too). For list rows.", false, Texts)
+            {
+                Conflicts = FilledByCode
+            };
+            yield return new EasyUIRole(InventoryRoles.SlotType, "Inventory/Slot Type",
+                "Inside the Slot Template: the item's Type, e.g. \"Book\" (set per item in the InventoryData). For list rows.", false, Texts)
+            {
+                Conflicts = FilledByCode
+            };
+            yield return new EasyUIRole(InventoryRoles.SlotWeight, "Inventory/Slot Weight",
+                "Inside the Slot Template: the weight of one of the item, e.g. \"0.5\" (a dash for 0). For list rows.", false, Texts)
+            {
+                Conflicts = FilledByCode
+            };
+            yield return new EasyUIRole(InventoryRoles.SlotValue, "Inventory/Slot Value",
+                "Inside the Slot Template: what one of the item is worth, e.g. \"120\" (a dash for 0). For list rows.", false, Texts)
+            {
+                Conflicts = FilledByCode
+            };
             yield return new EasyUIRole(InventoryRoles.CapacityText, "Inventory/Capacity Text",
                 "How full the inventory is: \"12.5 / 50\" (Weight), \"8 / 20\" (Max Slot) or used / total cells (Grid).", false, Texts)
+            {
+                Conflicts = FilledByCode
+            };
+            yield return new EasyUIRole(InventoryRoles.GoldText, "Inventory/Gold Text",
+                "The player's gold, e.g. \"1250\" - general, not part of any group. Updated when the gold changes (a Gold Collectible, " +
+                "a purchase), not each time the window opens. Several elements can have it.", false, Texts)
             {
                 Conflicts = FilledByCode
             };
@@ -182,6 +216,18 @@ namespace InventorySystem
                 Conflicts = FilledByCode
             };
             yield return new EasyUIRole(InventoryRoles.DetailsDescription, "Inventory/Item Description", "The selected item's description.", false, Texts)
+            {
+                Conflicts = FilledByCode
+            };
+            yield return new EasyUIRole(InventoryRoles.DetailsType, "Inventory/Item Type", "The selected item's Type, e.g. \"Book\".", false, Texts)
+            {
+                Conflicts = FilledByCode
+            };
+            yield return new EasyUIRole(InventoryRoles.DetailsWeight, "Inventory/Item Weight", "The selected item's weight (a dash for 0).", false, Texts)
+            {
+                Conflicts = FilledByCode
+            };
+            yield return new EasyUIRole(InventoryRoles.DetailsValue, "Inventory/Item Value", "What the selected item is worth (a dash for 0).", false, Texts)
             {
                 Conflicts = FilledByCode
             };

@@ -1,5 +1,6 @@
 #if HAS_INVENTORY_SYSTEM && HAS_UNIMVC && HAS_EVENT_SYSTEM && HAS_INPUT_SYSTEM
 using System.Collections.Generic;
+using EventSystem;
 using TMPro;
 using UniMVC;
 using UnityEngine;
@@ -13,7 +14,8 @@ namespace InventorySystem.UI
     /// for Grid), how full it is - "12.5 / 50" with a bar in Weight mode, "8 / 20" slots, or used / total
     /// cells - and drops items dragged out of the UI into the world through <see cref="ItemSpawner"/>. With a
     /// <see cref="InventoryDetailsPanel"/>, a click on an item - or the start of a drag - selects it and shows it
-    /// there.
+    /// there. Gold Text elements show the player's <see cref="InventoryManager.Gold"/>, updated whenever it changes - not each
+    /// time the window opens.
     /// </summary>
     /// <remarks>
     /// With several item groups (see InventoryData) the window holds one <see cref="InventoryGroupPopup"/> per group,
@@ -45,6 +47,9 @@ namespace InventorySystem.UI
 
         // "used / max" of the inventory's limit. Optional; with groups, one may sit in each popup - all show the open one's.
         [HideInInspector] [SerializeField] private TMP_Text[] capacityTexts = System.Array.Empty<TMP_Text>();
+
+        // The player's gold (InventoryManager.Gold). Optional. Set when the gold changes - not each time the window opens.
+        [HideInInspector] [SerializeField] private TMP_Text[] goldTexts = System.Array.Empty<TMP_Text>();
 
         // Weight mode only: shown, and set to total / max weight. Optional.
         [HideInInspector] [SerializeField] private UnityEngine.UI.Slider[] weightSliders = System.Array.Empty<UnityEngine.UI.Slider>();
@@ -93,6 +98,9 @@ namespace InventorySystem.UI
         private static CursorLockMode _savedLockState;
         private static bool _savedCursorVisible;
         private static readonly List<InputAction> BlockedActions = new();
+
+        // Room for the digits of any int (10) and a sign; shared, since the text copies it at once.
+        private static readonly char[] GoldBuffer = new char[11];
 
         private InputAction _toggle;
         private InputAction _cancel;
@@ -164,6 +172,15 @@ namespace InventorySystem.UI
             {
                 details.Initialize(UI);
                 details.SelectionChanged += OnSelectionChanged;
+            }
+
+            if (goldTexts.Length > 0)
+            {
+                EventManager.Register<GoldChangedEvent>(OnGoldChanged);
+                if (!bindToMainInventory)
+                {
+                    RefreshGold();
+                }
             }
 
             if (bindToMainInventory)
@@ -239,6 +256,9 @@ namespace InventorySystem.UI
                 Teardown();
                 return;
             }
+
+            // Initialize starts the gold over at 0.
+            RefreshGold();
 
             if (!HasGroups)
             {
@@ -430,6 +450,7 @@ namespace InventorySystem.UI
         private void Teardown()
         {
             InventoryManager.MainChanged -= OnMainChanged;
+            EventManager.Unregister<GoldChangedEvent>(OnGoldChanged);
             ListenToHeader(null);
             ReleaseSharedState();
 
@@ -630,6 +651,40 @@ namespace InventorySystem.UI
                 default:
                     text.SetText("{0}", inventory.UsedSlotCount);
                     break;
+            }
+        }
+
+        #endregion
+
+        #region Gold
+
+        // Raised when the gold changes - also while the window is closed, so it is right when it opens.
+        private void OnGoldChanged(GoldChangedEvent change)
+        {
+            if (this == null)
+            {
+                Teardown();
+                return;
+            }
+
+            SetGold(change.Gold);
+        }
+
+        private void RefreshGold() => SetGold(InventoryManager.Gold);
+
+        private void SetGold(int gold)
+        {
+            if (!gold.TryFormat(GoldBuffer, out var length))
+            {
+                return;
+            }
+
+            foreach (var text in goldTexts)
+            {
+                if (text != null)
+                {
+                    text.SetCharArray(GoldBuffer, 0, length);
+                }
             }
         }
 
@@ -866,7 +921,8 @@ namespace InventorySystem.UI
 
 #if HAS_LOCALIZATION_SYSTEM
         // Filled by code ("8 / 20"): LocalizationSystem's "Sync Project" leaves this label alone.
-        bool LocalizationSystem.ILocalizedByCode.Fills(Component text) => text != null && System.Array.IndexOf(capacityTexts, text as TMP_Text) >= 0;
+        bool LocalizationSystem.ILocalizedByCode.Fills(Component text) =>
+            text != null && (System.Array.IndexOf(capacityTexts, text as TMP_Text) >= 0 || System.Array.IndexOf(goldTexts, text as TMP_Text) >= 0);
 #endif
     }
 }

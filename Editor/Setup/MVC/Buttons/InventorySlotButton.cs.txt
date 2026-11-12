@@ -23,11 +23,20 @@ namespace InventorySystem.UI
 #if HAS_BASIC_TOOLTIP
         , ITooltipSource
 #endif
+#if HAS_LOCALIZATION_SYSTEM
+        , LocalizationSystem.ILocalizedByCode
+#endif
     {
         [HideInInspector] [SerializeField] private Image icon;
 
         [Tooltip("Shows the amount when it is more than 1.")]
         [HideInInspector] [SerializeField] private TMP_Text amountText;
+
+        // The columns of a list row (Easy UI's Slot Name / Type / Weight / Value roles): all optional.
+        [HideInInspector] [SerializeField] private TMP_Text nameText;
+        [HideInInspector] [SerializeField] private TMP_Text typeText;
+        [HideInInspector] [SerializeField] private TMP_Text weightText;
+        [HideInInspector] [SerializeField] private TMP_Text valueText;
 
         [Tooltip("Opacity of the slot while its item is being dragged.")]
         [Range(0f, 1f)] [SerializeField] private float draggedAlpha = 0.35f;
@@ -78,6 +87,12 @@ namespace InventorySystem.UI
             {
                 amountText.SetText(string.Empty);
             }
+
+            var item = slot.Item;
+            SetColumn(nameText, Localized(item.DisplayName));
+            SetColumn(typeText, Localized(item.Category));
+            SetColumn(weightText, ItemText.Weight(item.Weight));
+            SetColumn(valueText, ItemText.Value(item.Value));
         }
 
         public void ShowEmpty()
@@ -86,7 +101,26 @@ namespace InventorySystem.UI
             icon.sprite = null;
             icon.enabled = false;
             amountText.SetText(string.Empty);
+            SetColumn(nameText, string.Empty);
+            SetColumn(typeText, string.Empty);
+            SetColumn(weightText, string.Empty);
+            SetColumn(valueText, string.Empty);
         }
+
+        private static void SetColumn(TMP_Text column, string text)
+        {
+            if (column != null)
+            {
+                column.SetText(text);
+            }
+        }
+
+        private static string Localized(string text) =>
+#if HAS_LOCALIZATION_SYSTEM
+            LocalizationSystem.LocalizationRuntime.Get(text);
+#else
+            text;
+#endif
 
         // Pressable only while it holds an item. Things still drop onto an empty slot.
         private void SetPressable(bool pressable)
@@ -192,16 +226,18 @@ namespace InventorySystem.UI
             }
         }
 
-        public void OnSelect(BaseEventData eventData)
+        public override void OnSelect(BaseEventData eventData)
         {
+            base.OnSelect(eventData);
             if (Owner != null)
             {
                 Owner.OnSlotFocused(this);
             }
         }
 
-        public void OnPointerClick(PointerEventData eventData)
+        public override void OnPointerClick(PointerEventData eventData)
         {
+            base.OnPointerClick(eventData);
             if (Owner != null && eventData.button != PointerEventData.InputButton.Left)
             {
                 Owner.OnSlotClicked(this, eventData.button);
@@ -251,6 +287,13 @@ namespace InventorySystem.UI
                 Owner.OnSlotDrop(this, eventData);
             }
         }
+
+#if HAS_LOCALIZATION_SYSTEM
+        // Filled by code, already in the current language: LocalizationSystem's "Sync Project" leaves these labels alone.
+        bool LocalizationSystem.ILocalizedByCode.Fills(Component text) =>
+            text != null && (ReferenceEquals(text, nameText) || ReferenceEquals(text, typeText)
+                             || ReferenceEquals(text, weightText) || ReferenceEquals(text, valueText));
+#endif
     }
 }
 #endif
